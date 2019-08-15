@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Viewing {{ subreddit_name }}</title>
+</head>
+<body>
+    {% for post in posts %}
+        <p>Post title: {{ post.title }}</p>
+        <p>Post score: {{ post.score }}</p>
+        <a href="{{ post.shortlink }}">Post link</a>
+        <a href="{{ post.image_url }}">Image url</a>
+        <br>
+        <img src="{{ url_for('static', filename=post.image_name) }}">
+    {% endfor %}
+</body>
+</html>
