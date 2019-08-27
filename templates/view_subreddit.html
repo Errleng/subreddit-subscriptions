@@ -11,7 +11,10 @@
         <a href="{{ post.shortlink }}">Post link</a>
         <a href="{{ post.image_url }}">Image url</a>
         <br>
-        <img src="{{ url_for('static', filename=post.image_name) }}">
+        <img src="{{ post.image_preview_url }}">
     {% endfor %}
+    <form method="post">
+        <input type="submit" name="submit_button" value="Next Page">
+    </form>
 </body>
 </html>

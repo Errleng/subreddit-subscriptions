@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Favorite Subreddits</title>
+</head>
+<body>
+    {% for subreddit in subreddits %}
+        <h1>r/{{ subreddit.name }}</h1>
+        {% for post in subreddit.posts %}
+            <a href="{{ post.shortlink }}">({{post.score}}) {{ post.title }}</a>
+            <br>
+            {% if post.has_image %}
+                <a href="{{ post.image_url }}"><img src="{{ post.image_preview_url }}"></a>
+                <br>
+            {% endif %}
+            <br>
+        {% endfor %}
+    {% endfor %}
+</body>
+</html>
