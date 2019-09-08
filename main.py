@@ -1,13 +1,90 @@
 import os
 import time
+
 import praw
 from flask import Flask, render_template, request, redirect, url_for
 from prawcore import exceptions
 
-from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, MAX_WIDTH_TO_HEIGHT_RATIO, IMAGE_EXTENSIONS, SUBREDDIT_NAMES_RELATIVE_PATH
+from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, \
+    MAX_WIDTH_TO_HEIGHT_RATIO, IMAGE_EXTENSIONS, SUBREDDIT_NAMES_RELATIVE_PATH
 
 app = Flask(__name__)
 app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
+
+
+def get_image(submission):
+    # image media
+    image_preview = None
+
+    if image_preview is None and hasattr(submission, 'preview'):
+        # submission has preview image
+        preview_resolutions = submission.preview['images'][0]['resolutions']
+        image_preview = None
+
+        # get desired preview image
+        if len(preview_resolutions) >= 4:
+            image_preview = preview_resolutions[3]
+        elif len(preview_resolutions) > 0:
+            image_preview = preview_resolutions[-1]
+
+        if image_preview is not None:
+            # check if preview image has acceptable width to height ratio
+            image_preview_ratio = image_preview['width'] / image_preview['height']
+            if image_preview_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO:
+                image_preview = image_preview['url']
+
+    if image_preview is None and hasattr(submission, 'thumbnail'):
+        # submission has thumbnail
+        image_preview = submission.thumbnail
+
+    if image_preview is None:
+        image_preview = submission.url
+
+    print('image_preview: {0}'.format(image_preview))
+
+    return image_preview
+
+
+def get_media(submission):
+    # non-image media
+    media_preview = None
+
+    if media_preview is None and hasattr(submission, 'media_embed'):
+        media_embed = submission.media_embed
+        if media_embed is not None:
+            if 'content' in media_embed:
+                # so far known to have html for embedding the media identical to submission.media.oembed.html
+                media_preview = media_embed['content']
+            else:
+                print('media_embed\n{0}'.format(media_embed))
+
+    if media_preview is None and hasattr(submission, 'media'):
+        media = submission.media
+        if media is not None:
+            if 'oembed' in media:
+                # oEmbed format
+                oembed = media['oembed']
+                if 'html' in oembed:
+                    # html for embedding the media
+                    media_preview = oembed['html']
+                elif 'thumbnail_url' in oembed:
+                    # url to a thumbnail version of the media
+                    media_preview = oembed['thumbnail_url']
+                else:
+                    print('oembed\n{0}'.format(oembed))
+            elif 'reddit_video' in media:
+                # reddit's own video player
+                reddit_video = media['reddit_video']
+                if 'fallback_url' in reddit_video:
+                    media_preview = '<video controls><source src="{0}"></video>'.format(reddit_video['fallback_url'])
+                else:
+                    print('reddit_video\n{0}'.format(reddit_video))
+            else:
+                print('media\n{0}'.format(media))
+
+    print('media_preview: {0}'.format(media_preview))
+
+    return media_preview
 
 
 def get_image_posts(submissions):
@@ -20,13 +97,7 @@ def get_image_posts(submissions):
             continue
 
         # Check if submission has image
-        is_image_post = hasattr(submission, 'preview')  # having a preview implies having an image or thumbnail
-        if not is_image_post:
-            for extension in IMAGE_EXTENSIONS:
-                if submission.url.endswith(extension):
-                    is_image_post = True
-                    break
-
+        is_image_post = hasattr(submission, 'thumbnail') or hasattr(submission, 'preview')
         if is_image_post:
             image_submissions.append(submission)
 
@@ -37,29 +108,19 @@ def get_image_posts(submissions):
     for image_submission in image_submissions:
         start_time = time.time()
         image_url = image_submission.url
-        image_name = os.path.basename(image_url)
-
-        if hasattr(image_submission, 'preview'):
-            try:
-                image_preview = image_submission.preview['images'][0]['resolutions'][3]
-            except IndexError:
-                image_preview = image_submission.preview['images'][0]['resolutions'][-1]
-            image_preview_ratio = image_preview['width'] / image_preview['height']
-            if image_preview_ratio > MAX_WIDTH_TO_HEIGHT_RATIO:
-                print(image_preview_ratio, image_preview['width'], image_preview['height'])
-                image_preview_url = image_url
-            else:
-                image_preview_url = image_preview['url']
-        else:
-            image_preview_url = image_url
 
         post = {}
         post['title'] = image_submission.title
         post['score'] = image_submission.score
         post['shortlink'] = image_submission.shortlink
-        post['image_name'] = image_name
-        post['image_url'] = image_url
-        post['image_preview_url'] = image_preview_url
+
+        media_preview = get_media(image_submission)
+        if media_preview is not None:
+            post['media_preview'] = media_preview
+        else:
+            post['image_url'] = image_url
+            post['image_preview'] = get_image(image_submission)
+
         posts.append(post)
         print('Done post in {0} seconds'.format(round(time.time() - start_time, 2)))
 
@@ -99,7 +160,7 @@ def view_subreddit(subreddit_name, page_number):
         print('Next page')
         return redirect(url_for('view_subreddit', subreddit_name=subreddit_name, page_number=page_number + 1))
     else:
-        submissions = subreddit.top('all')
+        submissions = subreddit.top('day')
         submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
         posts = get_image_posts(submissions)
         return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts)
@@ -150,42 +211,12 @@ def show_favorite_subreddits():
             post['title'] = submission.title
             post['score'] = submission.score
             post['shortlink'] = submission.shortlink
-            post['has_image'] = False
-            post['image_name'] = None
-            post['image_url'] = None
-            post['image_preview_url'] = None
 
-            # Check if submission has image
-            is_image_post = hasattr(submission, 'preview')  # having a preview implies having an image or thumbnail
-            if not is_image_post:
-                for extension in IMAGE_EXTENSIONS:
-                    if submission.url.endswith(extension):
-                        is_image_post = True
-                        break
-
-            # Image submission logic
-            if is_image_post:
-                image_url = submission.url
-                image_name = os.path.basename(image_url)
-
-                if hasattr(submission, 'preview'):
-                    try:
-                        image_preview = submission.preview['images'][0]['resolutions'][3]
-                    except IndexError:
-                        image_preview = submission.preview['images'][0]['resolutions'][-1]
-                    image_preview_ratio = image_preview['width'] / image_preview['height']
-                    if image_preview_ratio > MAX_WIDTH_TO_HEIGHT_RATIO:
-                        print(image_preview_ratio, image_preview['width'], image_preview['height'])
-                        image_preview_url = image_url
-                    else:
-                        image_preview_url = image_preview['url']
-                else:
-                    image_preview_url = image_url
-
-                post['has_image'] = True
-                post['image_name'] = image_name
-                post['image_url'] = image_url
-                post['image_preview_url'] = image_preview_url
+            media_preview = get_media(submission)
+            if media_preview is not None:
+                post['media_preview'] = media_preview
+            elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
+                post['image_preview'] = get_image(submission)
 
             subreddit_object['posts'].append(post)
             print('Done post in {0} seconds'.format(round(time.time() - post_start_time, 2)))
@@ -197,4 +228,3 @@ def show_favorite_subreddits():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
