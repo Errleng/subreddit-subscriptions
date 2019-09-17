@@ -19,26 +19,22 @@ def get_image(submission):
     if image_preview is None and hasattr(submission, 'preview'):
         # submission has preview image
         preview_resolutions = submission.preview['images'][0]['resolutions']
-        image_preview = None
+        preview = None
 
         # get desired preview image
         if len(preview_resolutions) >= 4:
-            image_preview = preview_resolutions[3]
+            preview = preview_resolutions[3]
         elif len(preview_resolutions) > 0:
-            image_preview = preview_resolutions[-1]
+            preview = preview_resolutions[-1]
 
-        if image_preview is not None:
+        if preview is not None:
             # check if preview image has acceptable width to height ratio
-            image_preview_ratio = image_preview['width'] / image_preview['height']
+            image_preview_ratio = preview['width'] / preview['height']
             if image_preview_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO:
-                image_preview = image_preview['url']
+                image_preview = preview['url']
 
-    if image_preview is None and hasattr(submission, 'thumbnail'):
-        # submission has thumbnail
-        image_preview = submission.thumbnail
-
-    if image_preview is None:
-        image_preview = submission.url
+    if image_preview is None and hasattr(submission, 'preview'):
+        image_preview = submission.preview['images'][0]['source']['url']
 
     print('image_preview: {0}'.format(image_preview))
 

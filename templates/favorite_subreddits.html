@@ -8,16 +8,18 @@
     {% for subreddit in subreddits %}
         <h1>r/{{ subreddit.name }}</h1>
         {% for post in subreddit.posts %}
-            <a href="{{ post.shortlink }}">({{post.score}}) {{ post.title }}</a>
-            <br>
-            {% if post.media_preview %}
-                {{ post.media_preview | safe }}
+            <div>
+                <a href="{{ post.shortlink }}">({{ post.score }}) {{ post.title }}</a>
                 <br>
-            {% elif post.image_preview %}
-                <a href="{{ post.image_url }}"><img src="{{ post.image_preview }}"></a>
+                {% if post.media_preview %}
+                    {{ post.media_preview | safe }}
+                    <br>
+                {% elif post.image_preview %}
+                    <a href="{{ post.image_url }}"><img src="{{ post.image_preview }}"></a>
+                    <br>
+                {% endif %}
                 <br>
-            {% endif %}
-            <br>
+            </div>
         {% endfor %}
     {% endfor %}
 </body>
