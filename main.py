@@ -22,8 +22,8 @@ def get_image(submission):
         preview = None
 
         # get desired preview image
-        if len(preview_resolutions) >= 4:
-            preview = preview_resolutions[3]
+        if len(preview_resolutions) >= 3:
+            preview = preview_resolutions[2]
         elif len(preview_resolutions) > 0:
             preview = preview_resolutions[-1]
 
@@ -213,6 +213,7 @@ def show_favorite_subreddits():
                 post['media_preview'] = media_preview
             elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
                 post['image_preview'] = get_image(submission)
+                post['image_url'] = submission.url
 
             subreddit_object['posts'].append(post)
             print('Done post in {0} seconds'.format(round(time.time() - post_start_time, 2)))
