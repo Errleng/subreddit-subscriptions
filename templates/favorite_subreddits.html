@@ -8,28 +8,123 @@
 </head>
 
 <body>
-<div class="content">
-    {% for subreddit in subreddits %}
-    <h1>r/{{ subreddit.name }}</h1>
-    {% for post in subreddit.posts %}
-    <div>
-        <a href="{{ post.shortlink }}" rel="noopener noreferrer" target="_blank">({{ post.score }})
-            {{ post.title }}</a>
-        <br>
-        <hr>
-        {% if post.media_preview %}
-        {{ post.media_preview | safe }}
-        <br>
-        {% elif post.image_preview %}
-        <a href="{{ post.shortlink }}" rel="noopener noreferrer" target="_blank"><img
-                src="{{ post.image_preview }}"></a>
-        <br>
-        {% endif %}
-        <br>
-    </div>
-    {% endfor %}
-    {% endfor %}
+<div class="content" id="content">
+    <template id="postTemplate">
+        <div>
+            <div id="subredditDiv">
+            </div>
+            <div id="postDiv">
+                <a href="" rel="noopener noreferrer" target="_blank" id="postAnchor"></a>
+                <br>
+                <hr>
+            </div>
+            <div id="imageDiv">
+                <br>
+                <a href="" rel="noopener noreferrer" target="_blank" id="imageAnchor"><img src="" alt="Error loading image" id="imageEmbed"></a>
+                <br>
+            </div>
+            <div id="mediaDiv">
+
+            </div>
+            <br>
+        </div>
+    </template>
 </div>
+<div id="sentinel"></div>
 </body>
+
+<script>
+    const SUBREDDIT_MAX_POSTS = 10;
+    const POST_STEP = SUBREDDIT_MAX_POSTS;
+
+    let content = document.getElementById("content");
+    let sentinel = document.getElementById("sentinel");
+    let template = document.getElementById("postTemplate");
+
+    let subredditNum = 0;
+    let postNum = 0;
+
+    let intersectionOptions = {
+        rootMargin: "100%"
+    };
+
+    function intersectionCallback(entries) {
+        if (entries[0].intersectionRatio > 0) {
+            let advanceAmount = Math.min(POST_STEP, SUBREDDIT_MAX_POSTS - postNum);
+            load(advanceAmount);
+        }
+    }
+
+    let intersectionObserver = new IntersectionObserver(intersectionCallback, intersectionOptions);
+    intersectionObserver.observe(sentinel);
+
+    load(5);
+
+    function load(amount) {
+        const AJAX_URL = "favorites";
+
+        let id = "sub" + subredditNum + "_post" + postNum;
+        let postDiv = document.createElement("div");
+        postDiv.id = id;
+        content.appendChild(postDiv);
+
+        let request = new XMLHttpRequest();
+        request.open("POST", AJAX_URL);
+        request.setRequestHeader("Content-Type", "application/json");
+        request.onreadystatechange = function () {
+            if (request.readyState === 4 && request.status === 200) {
+                let responseJSON = JSON.parse(request.response);
+                for (const data of responseJSON) {
+                    let templateClone = template.content.cloneNode(true);
+
+                    if (data.hasOwnProperty("subreddit_name")) {
+                        let subredditDiv = templateClone.querySelector("#subredditDiv");
+                        subredditDiv.innerHTML = `<h1>${data["subreddit_name"]}</h1>`
+                    } else {
+                        let subredditDiv = templateClone.querySelector("#subredditDiv");
+                        subredditDiv.parentNode.removeChild(subredditDiv);
+                    }
+
+                    let postAnchor = templateClone.querySelector("#postAnchor");
+                    postAnchor.href = data["shortlink"];
+                    postAnchor.innerHTML = `${data["title"]} (${data["score"]})`;
+
+                    if (data.hasOwnProperty("image_preview")) {
+                        let imageAnchor = templateClone.querySelector("#imageAnchor");
+                        imageAnchor.href = data["shortlink"];
+                        let imageEmbed = templateClone.querySelector("#imageEmbed");
+                        imageEmbed.src = data["image_preview"];
+                    } else {
+                        let imageDiv = templateClone.querySelector("#imageDiv");
+                        imageDiv.parentNode.removeChild(imageDiv);
+                    }
+
+                    if (data.hasOwnProperty("media_preview")) {
+                        let mediaDiv = templateClone.querySelector("#mediaDiv");
+                        mediaDiv.innerHTML = data["media_preview"];
+                    } else {
+                        let mediaDiv = templateClone.querySelector("#mediaDiv");
+                        mediaDiv.parentNode.removeChild(mediaDiv);
+                    }
+
+                    content.querySelector("#" + id).appendChild(templateClone);
+                }
+            }
+        };
+
+        let requestContent = JSON.stringify({
+            subredditNum: subredditNum,
+            postNum: postNum,
+            amount: amount
+        });
+        request.send(requestContent);
+
+        postNum += amount;
+        if (postNum >= SUBREDDIT_MAX_POSTS) {
+            subredditNum += 1;
+            postNum = 0;
+        }
+    }
+</script>
 
 </html>

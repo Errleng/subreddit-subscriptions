@@ -2,21 +2,34 @@ import os
 import time
 
 import praw
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 from prawcore import exceptions
 
 from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, \
-    MAX_WIDTH_TO_HEIGHT_RATIO, IMAGE_EXTENSIONS, SUBREDDIT_NAMES_RELATIVE_PATH
+    MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH
 
 app = Flask(__name__)
 app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
+
+subreddit_names = []
+# read subreddit names from a file
+script_dir = os.path.dirname(os.path.realpath(__file__))
+with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_names_file:
+    for line in subreddit_names_file:
+        for name in line.split():
+            subreddit_names.append(name)
+
+# create a read-only Reddit instance
+reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
 
 
 def get_image(submission):
     # image media
     image_preview = None
 
+    lazy_load_start_time = time.time()
     if image_preview is None and hasattr(submission, 'preview'):
+        print('Time to lazy load: {0}'.format(time.time() - lazy_load_start_time))
         # submission has preview image
         preview_resolutions = submission.preview['images'][0]['resolutions']
         preview = None
@@ -137,11 +150,6 @@ def index():
 
 @app.route('/<subreddit_name>/<int:page_number>', methods=['GET', 'POST'])
 def view_subreddit(subreddit_name, page_number):
-    # create a read-only Reddit instance
-    reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
-
-    print('Is Reddit instance is read only? {0}'.format(reddit.read_only))
-
     subreddit = reddit.subreddit(subreddit_name)
 
     # deal with quarantined subreddits
@@ -162,65 +170,63 @@ def view_subreddit(subreddit_name, page_number):
         return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts)
 
 
-@app.route('/favorites')
+@app.route('/favorites', methods=['GET', 'POST'])
 def show_favorite_subreddits():
-    subreddit_names = []
+    if request.method == 'POST':
+        data = request.get_json()
+        cur_sub_num = data['subredditNum']
+        cur_post_num = data['postNum']
+        amount = data['amount']
 
-    # read subreddit names from a file
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_names_file:
-        for line in subreddit_names_file:
-            for subreddit_name in line.split():
-                subreddit_names.append(subreddit_name)
+        if cur_sub_num >= len(subreddit_names):
+            return {}
 
-    # create a read-only Reddit instance
-    reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
-
-    print('Is Reddit instance is read only? {0}'.format(reddit.read_only))
-
-    subreddits = []
-
-    for subreddit_name in subreddit_names:
-        subreddit = reddit.subreddit(subreddit_name)
-
+        subreddit = reddit.subreddit(subreddit_names[cur_sub_num])
         # deal with quarantined subreddits
         try:
             subreddit.quaran.opt_in()
         except exceptions.Forbidden:
             pass
 
-        subreddit_start_time = time.time()
+        submissions = subreddit.top('day', limit=(cur_post_num + amount))
 
-        subreddit_object = {}
-        subreddit_object['name'] = subreddit_name
-        subreddit_object['posts'] = []
+        print(cur_post_num, amount, cur_post_num + amount)
 
-        submissions = subreddit.top('day')
-        for submission in submissions:
-            if len(subreddit_object['posts']) >= SUBMISSION_NUMBER:
+        for _ in range(cur_post_num):
+            try:
+                next(submissions)
+            except StopIteration:
                 break
 
-            post_start_time = time.time()
+        posts = []
+        for submission in submissions:
+            start_time = time.time()
 
-            # Get generic submission data
+            # get generic submission data
             post = {}
             post['title'] = submission.title
             post['score'] = submission.score
             post['shortlink'] = submission.shortlink
 
-            media_preview = get_media(submission)
-            if media_preview is not None:
-                post['media_preview'] = media_preview
-            elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
-                post['image_preview'] = get_image(submission)
-                post['image_url'] = submission.url
+            if cur_post_num == 0:
+                post['subreddit_name'] = subreddit_names[cur_sub_num]
 
-            subreddit_object['posts'].append(post)
-            print('Done post in {0} seconds'.format(round(time.time() - post_start_time, 2)))
-        subreddits.append(subreddit_object)
-        print('Done r/{0} in {1} seconds'.format(subreddit_name, round(time.time() - subreddit_start_time, 2)))
+            if not submission.is_self:
+                # media data
+                media_preview = get_media(submission)
+                if media_preview is not None:
+                    post['media_preview'] = media_preview
+                elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
+                    image_preview = get_image(submission)
+                    if image_preview is not None:
+                        post['image_preview'] = image_preview
+                    post['image_url'] = submission.url
 
-    return render_template('favorite_subreddits.html', subreddits=subreddits)
+            print('Sub: {0}, Post#{1} Amount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, amount, time.time() - start_time))
+            cur_post_num += 1
+            posts.append(post)
+        return jsonify(posts)
+    return render_template('favorite_subreddits.html')
 
 
 if __name__ == '__main__':
