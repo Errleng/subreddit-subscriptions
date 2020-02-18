@@ -9,10 +9,24 @@
 
 <body>
 <div class="content" id="content">
+    <template id="subredditTemplate">
+        <div id="subredditDiv">
+            <h1 id="subredditName"></h1>
+            <div id="sortDiv">
+                <label for="sortSelect">Choose a sorting type</label>
+                <select name="sorts" id="sortSelect">
+                    <option value="day">Day</option>
+                    <option value="hour">Hour</option>
+                    <option value="week">Week</option>
+                    <option value="month">Month</option>
+                    <option value="year">Year</option>
+                    <option value="all">All</option>
+                </select>
+            </div>
+        </div>
+    </template>
     <template id="postTemplate">
         <div>
-            <div id="subredditDiv">
-            </div>
             <div id="postDiv">
                 <a href="" rel="noopener noreferrer" target="_blank" id="postAnchor"></a>
                 <br>
@@ -24,7 +38,6 @@
                 <br>
             </div>
             <div id="mediaDiv">
-
             </div>
             <br>
         </div>
@@ -34,96 +47,220 @@
 </body>
 
 <script>
+    // declare constants
     const SUBREDDIT_MAX_POSTS = 10;
     const POST_STEP = SUBREDDIT_MAX_POSTS;
 
+    // declare global variables
     let content = document.getElementById("content");
     let sentinel = document.getElementById("sentinel");
-    let template = document.getElementById("postTemplate");
+    let subredditTemplate = document.getElementById("subredditTemplate");
+    let postTemplate = document.getElementById("postTemplate");
 
-    let subredditNum = 0;
-    let postNum = 0;
-
+    // initialize intersection observer
     let intersectionOptions = {
-        rootMargin: "100%"
+        // rootMargin: "100%"
     };
-
-    function intersectionCallback(entries) {
-        if (entries[0].intersectionRatio > 0) {
-            let advanceAmount = Math.min(POST_STEP, SUBREDDIT_MAX_POSTS - postNum);
-            load(advanceAmount);
-        }
-    }
-
     let intersectionObserver = new IntersectionObserver(intersectionCallback, intersectionOptions);
     intersectionObserver.observe(sentinel);
 
-    load(5);
+    function intersectionCallback(entries) {
+        if (entries[0].intersectionRatio > 0) {
+            // get last subreddit
+            let subreddits = document.querySelectorAll("div[id^='subreddit_']");
 
-    function load(amount) {
+            if (subreddits.length > 0) {
+                console.log('subreddits exist');
+                // subreddits exist
+                let lastSubreddit = subreddits[subreddits.length - 1];
+                let lastSubredditPostCount = lastSubreddit.querySelectorAll("div[id^='post_']").length;
+
+                console.log(subreddits, lastSubreddit, lastSubredditPostCount);
+
+                // check if subreddit is finished loading
+                let completionIndicator = lastSubreddit.querySelector("div#subredditDone");
+                if (completionIndicator === undefined) {
+                    // subreddit not done loading
+                    let advanceAmount = Math.min(POST_STEP, SUBREDDIT_MAX_POSTS - lastSubredditPostCount);
+                    load(subreddits.length - 1, advanceAmount);
+                } else {
+                    // load new subreddit
+                    load(subreddits.length, POST_STEP);
+                }
+            } else {
+                console.log('first subreddit');
+                // load first subreddit
+                load(0, POST_STEP);
+            }
+        }
+    }
+
+    function load(subredditIndex, postAmount) {
+        // loads subreddits, by creating a new one or adding posts to an existing one
+
+        console.log('load', subredditIndex, postAmount);
+
+        let subreddit = document.querySelector(`#subreddit_${subredditIndex}`);
+        if (subreddit === null) {
+            // subreddit does not exist, create it
+            console.log('creating new subreddit');
+            loadSubreddit(subredditIndex, postAmount);
+        } else {
+            // subreddit does exist, load posts if not finished loading
+            let completionIndicator = lastSubreddit.querySelector("div#subredditDone");
+            if (completionIndicator === undefined) {
+                // subreddit not finished loading
+                let subredditPosts = subreddit.querySelectorAll("div[id^='post_']");
+                let postIndex = subredditPosts.length;
+
+                console.log('loading in progress');
+                loadPosts(subredditIndex - 1, postIndex, postAmount);
+            }
+        }
+    }
+
+    function loadSubreddit(subredditIndex, postAmount) {
         const AJAX_URL = "favorites";
 
-        let id = "sub" + subredditNum + "_post" + postNum;
-        let postDiv = document.createElement("div");
-        postDiv.id = id;
-        content.appendChild(postDiv);
+        console.log('load subreddit', subredditIndex);
 
+        // request subreddit name and create subreddit div
+        let request = new XMLHttpRequest();
+        request.open("POST", AJAX_URL);
+        request.setRequestHeader("Content-Type", "application/json");
+        request.onreadystatechange = function () {
+            if (request.readyState === 4 && request.status === 200) {
+                let subredditTemplateClone = subredditTemplate.content.cloneNode(true);
+                let data = JSON.parse(request.response);
+
+                let subredditDiv = subredditTemplateClone.querySelector("#subredditDiv");
+
+                // set subreddit heading
+                let subredditNameHeading = subredditDiv.querySelector("#subredditName");
+                subredditNameHeading.innerHTML = data["subreddit_name"];
+
+                // set sort type
+                let sortSelectElement = subredditDiv.querySelector("#sortDiv");
+                sortSelectElement.addEventListener("change", (event) => {
+                    // remove current subreddit posts and reload
+
+                    // get subreddit info
+                    let subredditDiv = sortSelectElement.parentNode;
+                    let subredditIndex = parseInt(subredditDiv.id.match(/\d+$/)[0]);
+
+                    console.log(`Sort ${event.target.value} for subreddit #${subredditIndex}`);
+
+                    // remove old posts
+                    let posts = subredditDiv.querySelectorAll("div[id^='post_']");
+
+                    // load new posts
+                    loadPosts(subredditIndex, 0, SUBREDDIT_MAX_POSTS, () => {
+                        console.log('removed posts', posts);
+                        posts.forEach((post) => {
+                            post.parentNode.removeChild(post);
+                        });
+                    });
+                });
+
+                subredditDiv.id = "subreddit_" + subredditIndex;
+                content.appendChild(subredditDiv);
+
+                console.log(data['subreddit_name']);
+
+                loadPosts(subredditIndex, 0, postAmount);
+            }
+        };
+
+        let requestContent = JSON.stringify({
+            subredditIndex: subredditIndex
+        });
+
+        request.send(requestContent);
+    }
+
+    function loadPosts(subredditIndex, postIndex, postAmount, callback) {
+        console.log('load posts', subredditIndex, postIndex, postAmount);
+        const AJAX_URL = "favorites";
+
+        // find the subreddit to load posts in
+        let subredditDiv = document.querySelector(`#subreddit_${subredditIndex}`);
+
+        // request post data
         let request = new XMLHttpRequest();
         request.open("POST", AJAX_URL);
         request.setRequestHeader("Content-Type", "application/json");
         request.onreadystatechange = function () {
             if (request.readyState === 4 && request.status === 200) {
                 let responseJSON = JSON.parse(request.response);
-                for (const data of responseJSON) {
-                    let templateClone = template.content.cloneNode(true);
+                for (let postCount = 0; postCount < responseJSON.length; ++postCount) {
+                    let data = responseJSON[postCount];
 
-                    if (data.hasOwnProperty("subreddit_name")) {
-                        let subredditDiv = templateClone.querySelector("#subredditDiv");
-                        subredditDiv.innerHTML = `<h1>${data["subreddit_name"]}</h1>`
-                    } else {
-                        let subredditDiv = templateClone.querySelector("#subredditDiv");
-                        subredditDiv.parentNode.removeChild(subredditDiv);
-                    }
+                    // create post div in subreddit div
+                    let postId = "post_" + postCount;
+                    let postDiv = document.createElement("div");
+                    postDiv.id = postId;
+                    subredditDiv.appendChild(postDiv);
 
-                    let postAnchor = templateClone.querySelector("#postAnchor");
+                    // clone post template
+                    let postTemplateClone = postTemplate.content.cloneNode(true);
+
+                    // add basic post information
+                    let postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
                     postAnchor.innerHTML = `${data["title"]} (${data["score"]})`;
 
+                    // check and add post preview image
                     if (data.hasOwnProperty("image_preview")) {
-                        let imageAnchor = templateClone.querySelector("#imageAnchor");
+                        let imageAnchor = postTemplateClone.querySelector("#imageAnchor");
                         imageAnchor.href = data["shortlink"];
-                        let imageEmbed = templateClone.querySelector("#imageEmbed");
+                        let imageEmbed = postTemplateClone.querySelector("#imageEmbed");
                         imageEmbed.src = data["image_preview"];
                     } else {
-                        let imageDiv = templateClone.querySelector("#imageDiv");
+                        let imageDiv = postTemplateClone.querySelector("#imageDiv");
                         imageDiv.parentNode.removeChild(imageDiv);
                     }
 
+                    // check and add post media
                     if (data.hasOwnProperty("media_preview")) {
-                        let mediaDiv = templateClone.querySelector("#mediaDiv");
+                        let mediaDiv = postTemplateClone.querySelector("#mediaDiv");
                         mediaDiv.innerHTML = data["media_preview"];
                     } else {
-                        let mediaDiv = templateClone.querySelector("#mediaDiv");
+                        let mediaDiv = postTemplateClone.querySelector("#mediaDiv");
                         mediaDiv.parentNode.removeChild(mediaDiv);
                     }
 
-                    content.querySelector("#" + id).appendChild(templateClone);
+                    postDiv.appendChild(postTemplateClone);
+                }
+
+                // check if completed by testing if max posts is reached or less posts are returned than expected
+                if (postIndex + postAmount >= SUBREDDIT_MAX_POSTS || responseJSON.length < postAmount) {
+                    let completionIndicator = document.createElement("div");
+                    completionIndicator.id = "subredditDone";
+                    subredditDiv.appendChild(completionIndicator);
+                }
+
+                // do callback if passed in
+                if (callback !== undefined) {
+                    callback();
                 }
             }
         };
 
         let requestContent = JSON.stringify({
-            subredditNum: subredditNum,
-            postNum: postNum,
-            amount: amount
+            subredditIndex: subredditIndex,
+            postIndex: postIndex,
+            postAmount: postAmount,
+            sortType: (() => {
+                let sortSelectElement = subredditDiv.querySelector("#sortSelect");
+                if (sortSelectElement === null) {
+                    return "day";
+                } else {
+                    return sortSelectElement.options[sortSelectElement.selectedIndex].value
+                }
+            })()
         });
-        request.send(requestContent);
 
-        postNum += amount;
-        if (postNum >= SUBREDDIT_MAX_POSTS) {
-            subredditNum += 1;
-            postNum = 0;
-        }
+        request.send(requestContent);
     }
 </script>
 

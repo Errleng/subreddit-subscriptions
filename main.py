@@ -174,9 +174,15 @@ def view_subreddit(subreddit_name, page_number):
 def show_favorite_subreddits():
     if request.method == 'POST':
         data = request.get_json()
-        cur_sub_num = data['subredditNum']
-        cur_post_num = data['postNum']
-        amount = data['amount']
+        # return current subreddit name
+        if len(data) == 1 and 'subredditIndex' in data:
+            return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
+
+        # return post data
+        cur_sub_num = data['subredditIndex']
+        cur_post_num = data['postIndex']
+        postAmount = data['postAmount']
+        sort_type = data['sortType']
 
         if cur_sub_num >= len(subreddit_names):
             return {}
@@ -188,9 +194,9 @@ def show_favorite_subreddits():
         except exceptions.Forbidden:
             pass
 
-        submissions = subreddit.top('day', limit=(cur_post_num + amount))
+        submissions = subreddit.top(sort_type, limit=(cur_post_num + postAmount))
 
-        print(cur_post_num, amount, cur_post_num + amount)
+        print(cur_post_num, postAmount, cur_post_num + postAmount)
 
         for _ in range(cur_post_num):
             try:
@@ -208,9 +214,6 @@ def show_favorite_subreddits():
             post['score'] = submission.score
             post['shortlink'] = submission.shortlink
 
-            if cur_post_num == 0:
-                post['subreddit_name'] = subreddit_names[cur_sub_num]
-
             if not submission.is_self:
                 # media data
                 media_preview = get_media(submission)
@@ -222,7 +225,7 @@ def show_favorite_subreddits():
                         post['image_preview'] = image_preview
                     post['image_url'] = submission.url
 
-            print('Sub: {0}, Post#{1} Amount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, amount, time.time() - start_time))
+            print('Sub: {0}, Post#{1} postAmount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, postAmount, time.time() - start_time))
             cur_post_num += 1
             posts.append(post)
         return jsonify(posts)
