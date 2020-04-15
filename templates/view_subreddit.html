@@ -3,18 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <title>Viewing {{ subreddit_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='view_subreddit.css') }}">
 </head>
 <body>
-    {% for post in posts %}
-        <p>Post title: {{ post.title }}</p>
-        <p>Post score: {{ post.score }}</p>
-        <a href="{{ post.shortlink }}">Post link</a>
-        <a href="{{ post.image_url }}">Image url</a>
+    <div class="content" id="content">
+        <form method="post">
+            <label for="sort_select">Sorting by {{ sort_type }}</label>
+            <select name="sorts" id="sort_select" onchange="this.form.submit()">
+                <option value="default">Default</option>
+                <option value="day">Day</option>
+                <option value="hour">Hour</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+                <option value="year">Year</option>
+                <option value="all">All</option>
+            </select>
+        </form>
         <br>
-        <img src="{{ post.image_preview_url }}" alt="Error loading image">
-    {% endfor %}
-    <form method="post">
-        <input type="submit" name="submit_button" value="Next Page">
-    </form>
+        {% for post in posts %}
+            <a href="{{ post.shortlink }}">{{ post.title }} ({{ post.score }})</a>
+            <hr>
+            <a href="{{ post.image_url }}"><img src="{{ post.image_preview }}"></a>
+            <br>
+        {% endfor %}
+        <form method="post">
+            <input type="submit" name="submit_button" value="Next Page">
+        </form>
+    </div>
 </body>
 </html>

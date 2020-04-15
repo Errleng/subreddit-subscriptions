@@ -107,7 +107,7 @@
             loadSubreddit(subredditIndex, postAmount);
         } else {
             // subreddit does exist, load posts if not finished loading
-            let completionIndicator = lastSubreddit.querySelector("div#subredditDone");
+            let completionIndicator = subreddit.querySelector("div#subredditDone");
             if (completionIndicator === undefined) {
                 // subreddit not finished loading
                 let subredditPosts = subreddit.querySelectorAll("div[id^='post_']");

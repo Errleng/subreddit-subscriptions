@@ -161,13 +161,19 @@ def view_subreddit(subreddit_name, page_number):
     print('Loading page {0}'.format(page_number))
 
     if request.method == 'POST':
-        print('Next page')
-        return redirect(url_for('view_subreddit', subreddit_name=subreddit_name, page_number=page_number + 1))
+        if 'submit_button' in request.form:
+            return redirect(url_for('view_subreddit', subreddit_name=subreddit_name, page_number=page_number + 1))
+        elif 'sorts' in request.form:
+            if request.form['sorts'] != 'default':
+                submissions = subreddit.top(request.form['sorts'])
+                submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
+                posts = get_image_posts(submissions)
+                return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type=request.form['sorts'])
     else:
         submissions = subreddit.top('day')
         submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
         posts = get_image_posts(submissions)
-        return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts)
+        return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type='day')
 
 
 @app.route('/favorites', methods=['GET', 'POST'])
@@ -181,7 +187,7 @@ def show_favorite_subreddits():
         # return post data
         cur_sub_num = data['subredditIndex']
         cur_post_num = data['postIndex']
-        postAmount = data['postAmount']
+        post_amount = data['postAmount']
         sort_type = data['sortType']
 
         if cur_sub_num >= len(subreddit_names):
@@ -194,9 +200,9 @@ def show_favorite_subreddits():
         except exceptions.Forbidden:
             pass
 
-        submissions = subreddit.top(sort_type, limit=(cur_post_num + postAmount))
+        submissions = subreddit.top(sort_type, limit=(cur_post_num + post_amount))
 
-        print(cur_post_num, postAmount, cur_post_num + postAmount)
+        print(cur_post_num, post_amount, cur_post_num + post_amount)
 
         for _ in range(cur_post_num):
             try:
@@ -225,7 +231,7 @@ def show_favorite_subreddits():
                         post['image_preview'] = image_preview
                     post['image_url'] = submission.url
 
-            print('Sub: {0}, Post#{1} postAmount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, postAmount, time.time() - start_time))
+            print('Sub: {0}, Post#{1} postAmount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, post_amount, time.time() - start_time))
             cur_post_num += 1
             posts.append(post)
         return jsonify(posts)
