@@ -6,7 +6,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from prawcore import exceptions
 
 from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, \
-    MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH
+    MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH, SUBMISSION_SCORE_DEGRADATION
 
 app = Flask(__name__)
 app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
@@ -182,7 +182,10 @@ def show_favorite_subreddits():
         data = request.get_json()
         # return current subreddit name
         if len(data) == 1 and 'subredditIndex' in data:
-            return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
+            if len(subreddit_names) < data['subredditIndex']:
+                return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
+            else:
+                return jsonify(), 404
 
         # return post data
         cur_sub_num = data['subredditIndex']
@@ -211,6 +214,7 @@ def show_favorite_subreddits():
                 break
 
         posts = []
+        top_score = None
         for submission in submissions:
             start_time = time.time()
 
@@ -234,6 +238,14 @@ def show_favorite_subreddits():
             print('Sub: {0}, Post#{1} postAmount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, post_amount, time.time() - start_time))
             cur_post_num += 1
             posts.append(post)
+
+            if top_score is None:
+                top_score = int(post['score'])
+            else:
+                percent_change = (top_score - int(post['score'])) / top_score
+                if percent_change > SUBMISSION_SCORE_DEGRADATION:
+                    print("Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(top_score, int(post['score']), percent_change))
+                    break
         return jsonify(posts)
     return render_template('favorite_subreddits.html')
 
