@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Favorite Subreddits</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='favorite_subreddits.css') }}">
+    <link href="{{ url_for('static', filename='favorite_subreddits.css') }}" rel="stylesheet">
 </head>
 
 <body>
@@ -14,7 +14,7 @@
             <h1 id="subredditName"></h1>
             <div id="sortDiv">
                 <label for="sortSelect">Choose a sorting type</label>
-                <select name="sorts" id="sortSelect">
+                <select id="sortSelect" name="sorts">
                     <option value="day">Day</option>
                     <option value="hour">Hour</option>
                     <option value="week">Week</option>
@@ -28,13 +28,14 @@
     <template id="postTemplate">
         <div>
             <div id="postDiv">
-                <a href="" rel="noopener noreferrer" target="_blank" id="postAnchor"></a>
+                <a href="" id="postAnchor" rel="noopener noreferrer" target="_blank"></a>
                 <br>
                 <hr>
             </div>
             <div id="imageDiv">
                 <br>
-                <a href="" rel="noopener noreferrer" target="_blank" id="imageAnchor"><img src="" alt="Error loading image" id="imageEmbed"></a>
+                <a href="" id="imageAnchor" rel="noopener noreferrer" target="_blank"><img alt="Error loading image"
+                                                                                           id="imageEmbed" src=""></a>
                 <br>
             </div>
             <div id="mediaDiv">
@@ -207,7 +208,7 @@
                     // add basic post information
                     let postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
-                    postAnchor.innerHTML = `${data["title"]} (${data["score"]})`;
+                    postAnchor.innerHTML = `${data["title"]}<br>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["elapsed_time"]})`;
 
                     // check and add post preview image
                     if (data.hasOwnProperty("image_preview")) {

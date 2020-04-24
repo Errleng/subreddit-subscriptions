@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime
 
 import praw
 from flask import Flask, render_template, request, redirect, url_for, jsonify
@@ -96,6 +97,56 @@ def get_media(submission):
     return media_preview
 
 
+def get_posts(submissions, score_degredation=None):
+    posts = []
+    top_score = None
+    for submission in submissions:
+        start_time = time.time()
+
+        # get generic submission data
+        post = {}
+        post['title'] = submission.title
+        post['score'] = submission.score
+        post['shortlink'] = submission.shortlink
+        # upvote ratio takes a lot of time to retrieve, likely uses up another API request
+        post['upvote_ratio'] = int(submission.upvote_ratio * 100)
+        post['creation_time'] = submission.created_utc
+        elapsed_seconds = time.time() - post['creation_time']
+        elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+        if elapsed_hours > 0:
+            post['elapsed_time'] = "{0} hours ago".format(int(elapsed_hours))
+        else:
+            elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+            post['elapsed_time'] = "{0} minutes ago".format(int(elapsed_minutes))
+
+        if not submission.is_self:
+            # media data
+            media_preview = get_media(submission)
+            if media_preview is not None:
+                post['media_preview'] = media_preview
+            elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
+                image_preview = get_image(submission)
+                if image_preview is not None:
+                    post['image_preview'] = image_preview
+                post['image_url'] = submission.url
+            print("media", time.time() - start_time)
+
+        print('{0}, time: {1}'.format(post['title'], time.time() - start_time))
+        posts.append(post)
+
+        if score_degredation is not None:
+            if top_score is None:
+                top_score = int(post['score'])
+            else:
+                percent_change = (top_score - int(post['score'])) / top_score
+                if percent_change > score_degredation:
+                    print(
+                        "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
+                            top_score, int(post['score']), percent_change))
+                    break
+    return posts
+
+
 def get_image_posts(submissions):
     image_submissions = []
 
@@ -167,12 +218,13 @@ def view_subreddit(subreddit_name, page_number):
             if request.form['sorts'] != 'default':
                 submissions = subreddit.top(request.form['sorts'])
                 submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
-                posts = get_image_posts(submissions)
-                return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type=request.form['sorts'])
+                posts = get_posts(submissions)
+                return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts,
+                                       sort_type=request.form['sorts'])
     else:
         submissions = subreddit.top('day')
         submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
-        posts = get_image_posts(submissions)
+        posts = get_posts(submissions)
         return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type='day')
 
 
@@ -182,7 +234,7 @@ def show_favorite_subreddits():
         data = request.get_json()
         # return current subreddit name
         if len(data) == 1 and 'subredditIndex' in data:
-            if len(subreddit_names) < data['subredditIndex']:
+            if data['subredditIndex'] < len(subreddit_names):
                 return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
             else:
                 return jsonify(), 404
@@ -213,40 +265,7 @@ def show_favorite_subreddits():
             except StopIteration:
                 break
 
-        posts = []
-        top_score = None
-        for submission in submissions:
-            start_time = time.time()
-
-            # get generic submission data
-            post = {}
-            post['title'] = submission.title
-            post['score'] = submission.score
-            post['shortlink'] = submission.shortlink
-
-            if not submission.is_self:
-                # media data
-                media_preview = get_media(submission)
-                if media_preview is not None:
-                    post['media_preview'] = media_preview
-                elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
-                    image_preview = get_image(submission)
-                    if image_preview is not None:
-                        post['image_preview'] = image_preview
-                    post['image_url'] = submission.url
-
-            print('Sub: {0}, Post#{1} postAmount: {2}, Time: {3}'.format(cur_sub_num, cur_post_num, post_amount, time.time() - start_time))
-            cur_post_num += 1
-            posts.append(post)
-
-            if top_score is None:
-                top_score = int(post['score'])
-            else:
-                percent_change = (top_score - int(post['score'])) / top_score
-                if percent_change > SUBMISSION_SCORE_DEGRADATION:
-                    print("Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(top_score, int(post['score']), percent_change))
-                    break
-        return jsonify(posts)
+        return jsonify(get_posts(submissions, SUBMISSION_SCORE_DEGRADATION))
     return render_template('favorite_subreddits.html')
 
 

@@ -3,32 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <title>Viewing {{ subreddit_name }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='view_subreddit.css') }}">
+    <link href="{{ url_for('static', filename='view_subreddit.css') }}" rel="stylesheet">
 </head>
 <body>
-    <div class="content" id="content">
-        <form method="post">
-            <label for="sort_select">Sorting by {{ sort_type }}</label>
-            <select name="sorts" id="sort_select" onchange="this.form.submit()">
-                <option value="default">Default</option>
-                <option value="day">Day</option>
-                <option value="hour">Hour</option>
-                <option value="week">Week</option>
-                <option value="month">Month</option>
-                <option value="year">Year</option>
-                <option value="all">All</option>
-            </select>
-        </form>
-        <br>
-        {% for post in posts %}
-            <a href="{{ post.shortlink }}">{{ post.title }} ({{ post.score }})</a>
-            <hr>
-            <a href="{{ post.image_url }}"><img src="{{ post.image_preview }}"></a>
-            <br>
-        {% endfor %}
-        <form method="post">
-            <input type="submit" name="submit_button" value="Next Page">
-        </form>
-    </div>
+<div class="content" id="content">
+    <form method="post">
+        <label for="sort_select">Sorting by {{ sort_type }}</label>
+        <select id="sort_select" name="sorts" onchange="this.form.submit()">
+            <option value="default">Default</option>
+            <option value="day">Day</option>
+            <option value="hour">Hour</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+            <option value="all">All</option>
+        </select>
+    </form>
+    <br>
+    {% for post in posts %}
+    <a href="{{ post.shortlink }}" rel="noopener noreferrer" target="_blank">{{ post.title }}<br>({{ post.score }}, {{post.upvote_ratio }}%) ({{ post.elapsed_time
+        }})</a>
+    <hr>
+    {% if 'image_url' in post %}
+    <a href="{{ post.image_url }}" rel="noopener noreferrer" target="_blank"><img src="{{ post.image_preview }}"></a>
+    <br>
+    {% endif %}
+    {% if 'media_preview' in post %}
+    <div>{{ post.media_preview|safe }}</div>
+    <br>
+    {% endif %}
+    {% endfor %}
+    <form method="post">
+        <input name="submit_button" type="submit" value="Next Page">
+    </form>
+</div>
 </body>
 </html>
