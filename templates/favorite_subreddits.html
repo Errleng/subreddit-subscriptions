@@ -9,6 +9,7 @@
 
 <body>
 <div class="content" id="content">
+    <button>Load all</button>
     <template id="subredditTemplate">
         <div id="subredditDiv">
             <h1 id="subredditName"></h1>
@@ -120,7 +121,7 @@
         }
     }
 
-    function loadSubreddit(subredditIndex, postAmount) {
+    function loadSubreddit(subredditIndex, postAmount, callback) {
         const AJAX_URL = "favorites";
 
         console.log('load subreddit', subredditIndex);
@@ -169,6 +170,10 @@
                 console.log(data['subreddit_name']);
 
                 loadPosts(subredditIndex, 0, postAmount);
+
+                if (callback !== undefined) {
+                    callback();
+                }
             }
         };
 
@@ -263,6 +268,17 @@
 
         request.send(requestContent);
     }
+
+    const loadAllButton = document.querySelector('button');
+    loadAllButton.addEventListener('click', event => {
+        let subreddits = document.querySelectorAll("div[id^='subreddit_']");
+        let subredditIndex = subreddits.length;
+        loadSubreddit(subredditIndex, SUBREDDIT_MAX_POSTS, function loadSubredditRecursive() {
+            let subreddits = document.querySelectorAll("div[id^='subreddit_']");
+            let subredditIndex = subreddits.length;
+            loadSubreddit(subredditIndex, SUBREDDIT_MAX_POSTS, loadSubredditRecursive);
+        });
+    });
 </script>
 
 </html>
