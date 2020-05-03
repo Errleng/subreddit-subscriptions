@@ -1,6 +1,5 @@
 import os
 import time
-from datetime import datetime
 
 import praw
 from flask import Flask, render_template, request, redirect, url_for, jsonify
