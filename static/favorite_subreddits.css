@@ -3,7 +3,7 @@
 }
 
 h1 {
-    font-size: 76px;
+    font-size: 96px;
     font-weight: bold;
     font-family: "Roboto", sans-serif;
     text-transform: uppercase;
@@ -11,7 +11,7 @@ h1 {
 }
 
 a {
-    font-size: 24px;
+    font-size: 48px;
     font-weight: normal;
     font-family: "Roboto", sans-serif;
     color: black;

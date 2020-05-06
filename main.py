@@ -1,12 +1,13 @@
 import os
 import time
 
+import imgspy
 import praw
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from prawcore import exceptions
 
 from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, \
-    MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH, SUBMISSION_SCORE_DEGRADATION
+    MAX_WIDTH, MAX_HEIGHT, MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH, SUBMISSION_SCORE_DEGRADATION
 
 app = Flask(__name__)
 app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
@@ -23,35 +24,60 @@ with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_na
 reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
 
 
+def is_valid_thumbnail(thumbnail):
+    return thumbnail != 'nsfw'
+
+
 def get_image(submission):
     # image media
-    image_preview = None
+    submission_image = None
 
     lazy_load_start_time = time.time()
-    if image_preview is None and hasattr(submission, 'preview'):
+
+    if is_valid_thumbnail(submission.thumbnail):
+        submission_image = submission.thumbnail
+        # print('Using thumbnail for image preview: {0}'.format(image_preview))
+
+    if hasattr(submission, 'preview'):
         print('Time to lazy load: {0}'.format(time.time() - lazy_load_start_time))
         # submission has preview image
         preview_resolutions = submission.preview['images'][0]['resolutions']
-        preview = None
-
-        # get desired preview image
-        if len(preview_resolutions) >= 3:
-            preview = preview_resolutions[2]
-        elif len(preview_resolutions) > 0:
-            preview = preview_resolutions[-1]
-
-        if preview is not None:
-            # check if preview image has acceptable width to height ratio
-            image_preview_ratio = preview['width'] / preview['height']
-            if image_preview_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO:
-                image_preview = preview['url']
-
-    if image_preview is None and hasattr(submission, 'preview'):
-        image_preview = submission.preview['images'][0]['source']['url']
-
-    print('image_preview: {0}'.format(image_preview))
-
-    return image_preview
+        print(len(preview_resolutions), preview_resolutions)
+        # cannot trust reddit to report accurate resolutions
+        # images are often larger than reported
+        # network request is the main bottleneck
+        # request + PIL is slower than headers
+        for preview_image in reversed(preview_resolutions):
+            # go from largest to smallest because most preview images are small
+            response = imgspy.info(preview_image['url'])
+            width, height = response['width'], response['height']
+            dimensions_ratio = width / height
+            if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
+                print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
+                submission_image = preview_image['url']
+                break
+        # dimensions_ratio = image['width'] / image['height']
+        # if dimensions_ratio > MAX_WIDTH_TO_HEIGHT_RATIO or image['width'] > MAX_WIDTH or image[
+        #     'height'] > MAX_HEIGHT:
+        #     print('preview images stopped at ({0}, {1}) with ratio {2}'.format(image['width'], image['height'],
+        #                                                                       dimensions_ratio))
+        #     break
+        # else:
+        #     print(image)
+        #     image_preview = image['url']
+        # else:
+        #     source_image = submission.preview['images'][0]['source']
+        #     if (source_image['width'] > MAX_WIDTH or source_image['height'] > MAX_HEIGHT) and is_valid_thumbnail(submission.thumbnail):
+        #         image_preview = submission.thumbnail
+        #         print('Using thumbnail for image preview: {0}'.format(image_preview))
+        #     else:
+        #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
+        #         image_preview = source_image['url']
+    else:
+        # last resort use source image url
+        submission_image = submission.url
+    print(submission_image)
+    return submission_image
 
 
 def get_media(submission):
@@ -64,8 +90,8 @@ def get_media(submission):
             if 'content' in media_embed:
                 # so far known to have html for embedding the media identical to submission.media.oembed.html
                 media_preview = media_embed['content']
-            else:
-                print('media_embed\n{0}'.format(media_embed))
+            # else:
+            #     print('media_embed\n{0}'.format(media_embed))
 
     if media_preview is None and hasattr(submission, 'media'):
         media = submission.media
@@ -79,19 +105,19 @@ def get_media(submission):
                 elif 'thumbnail_url' in oembed:
                     # url to a thumbnail version of the media
                     media_preview = oembed['thumbnail_url']
-                else:
-                    print('oembed\n{0}'.format(oembed))
+                # else:
+                #     print('oembed\n{0}'.format(oembed))
             elif 'reddit_video' in media:
                 # reddit's own video player
                 reddit_video = media['reddit_video']
                 if 'fallback_url' in reddit_video:
                     media_preview = '<video controls><source src="{0}"></video>'.format(reddit_video['fallback_url'])
-                else:
-                    print('reddit_video\n{0}'.format(reddit_video))
-            else:
-                print('media\n{0}'.format(media))
+                # else:
+                #     print('reddit_video\n{0}'.format(reddit_video))
+            # else:
+            #     print('media\n{0}'.format(media))
 
-    print('media_preview: {0}'.format(media_preview))
+    # print('media_preview: {0}'.format(media_preview))
 
     return media_preview
 
@@ -128,9 +154,9 @@ def get_posts(submissions, score_degredation=None):
                 if image_preview is not None:
                     post['image_preview'] = image_preview
                 post['image_url'] = submission.url
-            print("media", time.time() - start_time)
+            # print("media", time.time() - start_time)
 
-        print('{0}, time: {1}'.format(post['title'], time.time() - start_time))
+        print('{0} - {1}, time: {2}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4)))
         posts.append(post)
 
         if score_degredation is not None:
