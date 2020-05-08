@@ -1,13 +1,14 @@
+import json
 import os
 import time
+import threading
 
 import imgspy
 import praw
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from prawcore import exceptions
 
-from constants import REDDIT_APP_ID, REDDIT_APP_SECRET, REDDIT_APP_USER_AGENT, SUBMISSION_NUMBER, \
-    MAX_WIDTH, MAX_HEIGHT, MAX_WIDTH_TO_HEIGHT_RATIO, SUBREDDIT_NAMES_RELATIVE_PATH, SUBMISSION_SCORE_DEGRADATION
+from constants import *
 
 app = Flask(__name__)
 app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
@@ -22,10 +23,11 @@ with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_na
 
 # create a read-only Reddit instance
 reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
+lock = threading.Lock()
 
 
 def is_valid_thumbnail(thumbnail):
-    return thumbnail != 'nsfw'
+    return (len(thumbnail) > 0) and (thumbnail != 'nsfw')
 
 
 def get_image(submission):
@@ -35,6 +37,7 @@ def get_image(submission):
     lazy_load_start_time = time.time()
 
     if is_valid_thumbnail(submission.thumbnail):
+        print('{0} thumbnail "{1}"'.format(submission.title, submission.thumbnail))
         submission_image = submission.thumbnail
         # print('Using thumbnail for image preview: {0}'.format(image_preview))
 
@@ -43,37 +46,40 @@ def get_image(submission):
         # submission has preview image
         preview_resolutions = submission.preview['images'][0]['resolutions']
         print(len(preview_resolutions), preview_resolutions)
-        # cannot trust reddit to report accurate resolutions
-        # images are often larger than reported
-        # network request is the main bottleneck
-        # request + PIL is slower than headers
-        for preview_image in reversed(preview_resolutions):
-            # go from largest to smallest because most preview images are small
-            response = imgspy.info(preview_image['url'])
-            width, height = response['width'], response['height']
-            dimensions_ratio = width / height
-            if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
-                print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
-                submission_image = preview_image['url']
-                break
-        # dimensions_ratio = image['width'] / image['height']
-        # if dimensions_ratio > MAX_WIDTH_TO_HEIGHT_RATIO or image['width'] > MAX_WIDTH or image[
-        #     'height'] > MAX_HEIGHT:
-        #     print('preview images stopped at ({0}, {1}) with ratio {2}'.format(image['width'], image['height'],
-        #                                                                       dimensions_ratio))
-        #     break
-        # else:
-        #     print(image)
-        #     image_preview = image['url']
-        # else:
-        #     source_image = submission.preview['images'][0]['source']
-        #     if (source_image['width'] > MAX_WIDTH or source_image['height'] > MAX_HEIGHT) and is_valid_thumbnail(submission.thumbnail):
-        #         image_preview = submission.thumbnail
-        #         print('Using thumbnail for image preview: {0}'.format(image_preview))
-        #     else:
-        #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
-        #         image_preview = source_image['url']
-    print(submission_image)
+        if len(preview_resolutions) > 0:
+            # cannot trust reddit to report accurate resolutions
+            # images are often larger than reported
+            # network request is the main bottleneck
+            # request + PIL is slower than headers
+            submission_image = preview_resolutions[0]['url']
+            for preview_image in reversed(preview_resolutions):
+                # go from largest to smallest because most preview images are small
+                response = imgspy.info(preview_image['url'])
+                width, height = response['width'], response['height']
+                dimensions_ratio = width / height
+                if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
+                    print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
+                    submission_image = preview_image['url']
+                    break
+        else:
+            submission_image = submission.preview['images'][0]['source']['url']
+            # dimensions_ratio = image['width'] / image['height']
+            # if dimensions_ratio > MAX_WIDTH_TO_HEIGHT_RATIO or image['width'] > MAX_WIDTH or image[
+            #     'height'] > MAX_HEIGHT:
+            #     print('preview images stopped at ({0}, {1}) with ratio {2}'.format(image['width'], image['height'],
+            #                                                                       dimensions_ratio))
+            #     break
+            # else:
+            #     print(image)
+            #     image_preview = image['url']
+            # else:
+            #     source_image = submission.preview['images'][0]['source']
+            #     if (source_image['width'] > MAX_WIDTH or source_image['height'] > MAX_HEIGHT) and is_valid_thumbnail(submission.thumbnail):
+            #         image_preview = submission.thumbnail
+            #         print('Using thumbnail for image preview: {0}'.format(image_preview))
+            #     else:
+            #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
+            #         image_preview = source_image['url']
     return submission_image
 
 
@@ -119,7 +125,21 @@ def get_media(submission):
     return media_preview
 
 
-def get_posts(submissions, score_degredation=None):
+def get_posts(submissions, score_degradation=None):
+    post_cache = {}
+
+    # session method
+    # if "post_cache" not in session:
+    #     session["post_cache"] = {}
+    # post_cache = session["post_cache"]
+
+    # serialization method
+    try:
+        with open(CACHE_FILE_NAME, 'r') as f:
+            post_cache = json.load(f)
+    except FileNotFoundError:
+        pass
+
     posts = []
     top_score = None
     for submission in submissions:
@@ -127,45 +147,111 @@ def get_posts(submissions, score_degredation=None):
 
         # get generic submission data
         post = {}
-        post['title'] = submission.title
+
+        # caching
+        is_cached = False
+        if submission.id in post_cache:
+            is_cached = True
+            post = post_cache[submission.id]
+            post['cached'] = True
+            print('loaded "{0}" from cache'.format(submission.id))
+
+        # attributes that need to be updated
         post['score'] = submission.score
-        post['shortlink'] = submission.shortlink
         # upvote ratio takes a lot of time to retrieve, likely uses up another API request
         post['upvote_ratio'] = int(submission.upvote_ratio * 100)
-        post['creation_time'] = submission.created_utc
-        elapsed_seconds = time.time() - post['creation_time']
-        elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
-        if elapsed_hours > 0:
-            post['elapsed_time'] = "{0} hours ago".format(int(elapsed_hours))
-        else:
-            elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
-            post['elapsed_time'] = "{0} minutes ago".format(int(elapsed_minutes))
 
-        if not submission.is_self:
-            # media data
-            media_preview = get_media(submission)
-            if media_preview is not None:
-                post['media_preview'] = media_preview
-            elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
-                image_preview = get_image(submission)
-                if image_preview is not None:
-                    post['image_preview'] = image_preview
-                post['image_url'] = submission.url
-            # print("media", time.time() - start_time)
+        # comments
+        test_time = time.time()
+        if is_cached:
+            post['new_comments_count'] = post['comment_count'] - submission.num_comments
+        post['comment_count'] = submission.num_comments
+        print('comment count took {}'.format(time.time() - test_time))
+
+        # creation time
+        test_time = time.time()
+        elapsed_seconds = int(time.time() - submission.created_utc)
+        elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+        elapsed_hours = int(elapsed_hours)
+        post['hours_since_creation'] = elapsed_hours
+        elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+        elapsed_minutes = int(elapsed_minutes)
+        post['minutes_since_creation'] = elapsed_minutes
+        if elapsed_hours > 0:
+            post['time_since_creation'] = '{} hours ago'.format(elapsed_hours)
+        elif elapsed_minutes > 0:
+            post['time_since_creation'] = '{} minutes ago'.format(elapsed_minutes)
+        else:
+            post['time_since_creation'] = '{} seconds ago'.format(elapsed_seconds)
+
+        # last visit time
+        if is_cached:
+            elapsed_seconds = int(time.time() - post['visit_time'])
+            elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+            elapsed_hours = int(elapsed_hours)
+            post['hours_since_visit'] = elapsed_hours
+            elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+            elapsed_minutes = int(elapsed_minutes)
+            post['minutes_since_visit'] = elapsed_minutes
+            if elapsed_hours > 0:
+                post['time_since_visit'] = '{} hours ago'.format(elapsed_hours)
+            elif elapsed_minutes > 0:
+                post['time_since_visit'] = '{} minutes ago'.format(elapsed_minutes)
+            else:
+                post['time_since_visit'] = '{} seconds ago'.format(elapsed_seconds)
+        post['visit_time'] = time.time()
+
+        print('creation and visit time took {}'.format(time.time() - test_time))
+
+        if not is_cached:
+            # attributes that do not need to be updated
+            post['title'] = submission.title
+            post['shortlink'] = submission.shortlink
+            # post['creation_time'] = submission.created_utc
+
+            if not submission.is_self:
+                # media data
+                media_preview = get_media(submission)
+                if media_preview is not None:
+                    post['media_preview'] = media_preview
+                elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
+                    image_preview = get_image(submission)
+                    if image_preview is not None:
+                        post['image_preview'] = image_preview
+                    post['image_url'] = submission.url
+                # print("media", time.time() - start_time)
 
         print('{0} - {1}, time: {2}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4)))
         posts.append(post)
 
-        if score_degredation is not None:
+        post_cache[submission.id] = post
+
+        if score_degradation is not None:
             if top_score is None:
                 top_score = int(post['score'])
             else:
                 percent_change = (top_score - int(post['score'])) / top_score
-                if percent_change > score_degredation:
+                if percent_change > score_degradation:
                     print(
                         "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
                             top_score, int(post['score']), percent_change))
                     break
+    # save cache
+    with lock:
+        old_post_cache = None
+        try:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                old_post_cache = json.load(f)
+        except FileNotFoundError:
+            pass
+        # merge data
+        if old_post_cache is not None:
+            old_post_cache.update(post_cache)
+            post_cache = {**old_post_cache, **post_cache}
+        with open(CACHE_FILE_NAME, 'w') as f:
+            print('dumping {}'.format(post_cache))
+            json.dump(post_cache, f)
+
     return posts
 
 
@@ -293,3 +379,4 @@ def show_favorite_subreddits():
 
 if __name__ == '__main__':
     app.run(debug=True)
+    # perhaps put JSON dumping here or use atexit

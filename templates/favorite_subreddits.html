@@ -30,7 +30,6 @@
         <div>
             <div id="postDiv">
                 <a href="" id="postAnchor" rel="noopener noreferrer" target="_blank"></a>
-                <br>
                 <hr>
             </div>
             <div id="imageDiv">
@@ -213,10 +212,15 @@
                     // add basic post information
                     let postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
-                    postAnchor.innerHTML = `${data["title"]}<br>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["elapsed_time"]})`;
+                    if (data.hasOwnProperty("cached")) {
+                        postAnchor.innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]}) (${data["time_since_visit"]}) (${data["comment_count"]}, ${data["new_comments_count"]} new)</p>`;
+                    } else {
+                        postAnchor.innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]}) (${data["comment_count"]})</p>`;
+                    }
 
                     // check and add post preview image
                     if (data.hasOwnProperty("image_preview")) {
+                        console.log(data)
                         let imageAnchor = postTemplateClone.querySelector("#imageAnchor");
                         imageAnchor.href = data["shortlink"];
                         let imageEmbed = postTemplateClone.querySelector("#imageEmbed");
