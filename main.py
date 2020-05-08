@@ -73,9 +73,6 @@ def get_image(submission):
         #     else:
         #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
         #         image_preview = source_image['url']
-    else:
-        # last resort use source image url
-        submission_image = submission.url
     print(submission_image)
     return submission_image
 
