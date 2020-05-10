@@ -1,7 +1,7 @@
 import json
 import os
-import time
 import threading
+import time
 
 import imgspy
 import praw
@@ -27,7 +27,7 @@ lock = threading.Lock()
 
 
 def is_valid_thumbnail(thumbnail):
-    return (len(thumbnail) > 0) and (thumbnail != 'nsfw')
+    return (len(thumbnail) > 0) and (thumbnail != 'default') and (thumbnail != 'nsfw')
 
 
 def get_image(submission):
@@ -126,6 +126,15 @@ def get_media(submission):
 
 
 def get_posts(submissions, score_degradation=None):
+    def remove_outdated(cache):
+        filtered_cache = {}
+        for id, post in cache.items():
+            if post['hours_since_creation'] < 25:
+                filtered_cache[id] = post
+            else:
+                print('removed outdated post {0} "{1}"'.format(id, post['title']))
+        cache = filtered_cache
+
     post_cache = {}
 
     # session method
@@ -137,6 +146,7 @@ def get_posts(submissions, score_degradation=None):
     try:
         with open(CACHE_FILE_NAME, 'r') as f:
             post_cache = json.load(f)
+            remove_outdated(post_cache)
     except FileNotFoundError:
         pass
 
@@ -246,6 +256,7 @@ def get_posts(submissions, score_degradation=None):
             pass
         # merge data
         if old_post_cache is not None:
+            remove_outdated(old_post_cache)
             old_post_cache.update(post_cache)
             post_cache = {**old_post_cache, **post_cache}
         with open(CACHE_FILE_NAME, 'w') as f:
@@ -365,15 +376,16 @@ def show_favorite_subreddits():
 
         submissions = subreddit.top(sort_type, limit=(cur_post_num + post_amount))
 
-        print(cur_post_num, post_amount, cur_post_num + post_amount)
-
         for _ in range(cur_post_num):
             try:
                 next(submissions)
             except StopIteration:
                 break
 
-        return jsonify(get_posts(submissions, SUBMISSION_SCORE_DEGRADATION))
+        posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
+        print('sub {0}, post {1}, {2} posts, offset {3}, {4}'.format(cur_sub_num, cur_post_num, post_amount,
+                                                                     cur_post_num + post_amount, posts))
+        return jsonify(posts)
     return render_template('favorite_subreddits.html')
 
 
