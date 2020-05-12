@@ -37,15 +37,15 @@ def get_image(submission):
     lazy_load_start_time = time.time()
 
     if is_valid_thumbnail(submission.thumbnail):
-        print('{0} thumbnail "{1}"'.format(submission.title, submission.thumbnail))
+        # print('{0} thumbnail "{1}"'.format(submission.title, submission.thumbnail))
         submission_image = submission.thumbnail
         # print('Using thumbnail for image preview: {0}'.format(image_preview))
 
     if hasattr(submission, 'preview'):
-        print('Time to lazy load: {0}'.format(time.time() - lazy_load_start_time))
+        # print('Time to lazy load: {0}'.format(time.time() - lazy_load_start_time))
         # submission has preview image
         preview_resolutions = submission.preview['images'][0]['resolutions']
-        print(len(preview_resolutions), preview_resolutions)
+        # print(len(preview_resolutions), preview_resolutions)
         if len(preview_resolutions) > 0:
             # cannot trust reddit to report accurate resolutions
             # images are often larger than reported
@@ -58,7 +58,7 @@ def get_image(submission):
                 width, height = response['width'], response['height']
                 dimensions_ratio = width / height
                 if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
-                    print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
+                    # print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
                     submission_image = preview_image['url']
                     break
         else:
@@ -129,7 +129,7 @@ def get_posts(submissions, score_degradation=None):
     def remove_outdated(cache):
         filtered_cache = {}
         for id, post in cache.items():
-            if post['hours_since_creation'] < 25:
+            if post['hours_since_creation'] <= 24 * 2:
                 filtered_cache[id] = post
             else:
                 print('removed outdated post {0} "{1}"'.format(id, post['title']))
@@ -144,9 +144,10 @@ def get_posts(submissions, score_degradation=None):
 
     # serialization method
     try:
-        with open(CACHE_FILE_NAME, 'r') as f:
-            post_cache = json.load(f)
-            remove_outdated(post_cache)
+        with lock:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                post_cache = json.load(f)
+                remove_outdated(post_cache)
     except FileNotFoundError:
         pass
 
@@ -164,7 +165,7 @@ def get_posts(submissions, score_degradation=None):
             is_cached = True
             post = post_cache[submission.id]
             post['cached'] = True
-            print('loaded "{0}" from cache'.format(submission.id))
+            # print('loaded "{0}" from cache'.format(submission.id))
 
         # attributes that need to be updated
         post['score'] = submission.score
@@ -174,9 +175,9 @@ def get_posts(submissions, score_degradation=None):
         # comments
         test_time = time.time()
         if is_cached:
-            post['new_comments_count'] = post['comment_count'] - submission.num_comments
+            post['new_comments_count'] = submission.num_comments - post['comment_count']
         post['comment_count'] = submission.num_comments
-        print('comment count took {}'.format(time.time() - test_time))
+        # print('comment count took {}'.format(time.time() - test_time))
 
         # creation time
         test_time = time.time()
@@ -211,7 +212,7 @@ def get_posts(submissions, score_degradation=None):
                 post['time_since_visit'] = '{} seconds ago'.format(elapsed_seconds)
         post['visit_time'] = time.time()
 
-        print('creation and visit time took {}'.format(time.time() - test_time))
+        # print('creation and visit time took {}'.format(time.time() - test_time))
 
         if not is_cached:
             # attributes that do not need to be updated
@@ -260,7 +261,7 @@ def get_posts(submissions, score_degradation=None):
             old_post_cache.update(post_cache)
             post_cache = {**old_post_cache, **post_cache}
         with open(CACHE_FILE_NAME, 'w') as f:
-            print('dumping {}'.format(post_cache))
+            # print('dumping {}'.format(post_cache))
             json.dump(post_cache, f)
 
     return posts
@@ -280,8 +281,8 @@ def get_image_posts(submissions):
         if is_image_post:
             image_submissions.append(submission)
 
-    for image_submission in image_submissions:
-        print('{0}: {1}: {2}'.format(image_submission.shortlink, image_submission.score, image_submission.url))
+    # for image_submission in image_submissions:
+    #     print('{0}: {1}: {2}'.format(image_submission.shortlink, image_submission.score, image_submission.url))
 
     posts = []
     for image_submission in image_submissions:
