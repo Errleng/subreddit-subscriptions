@@ -54,7 +54,13 @@ def get_image(submission):
             submission_image = preview_resolutions[0]['url']
             for preview_image in reversed(preview_resolutions):
                 # go from largest to smallest because most preview images are small
-                response = imgspy.info(preview_image['url'])
+                try:
+                    response = imgspy.info(preview_image['url'])
+                except Exception as e:
+                    print(
+                        'Exception retrieving image information for submission {0} "{1}" with image preview {2}: {3}'.format(
+                            submission.id, submission.title, preview_image, e))
+                    continue
                 width, height = response['width'], response['height']
                 dimensions_ratio = width / height
                 if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
