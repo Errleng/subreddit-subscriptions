@@ -30,6 +30,16 @@ def is_valid_thumbnail(thumbnail):
     return (len(thumbnail) > 0) and (thumbnail != 'default') and (thumbnail != 'nsfw')
 
 
+def remove_outdated(cache):
+    filtered_cache = {}
+    for post_id, post in cache.items():
+        if post['hours_since_creation'] <= 24 * 2:
+            filtered_cache[post_id] = post
+        else:
+            print('removed outdated post {0} "{1}"'.format(post_id, post['title']))
+    cache = filtered_cache
+
+
 def get_image(submission):
     # image media
     submission_image = None
@@ -54,13 +64,14 @@ def get_image(submission):
             submission_image = preview_resolutions[0]['url']
             for preview_image in reversed(preview_resolutions):
                 # go from largest to smallest because most preview images are small
-                try:
-                    response = imgspy.info(preview_image['url'])
-                except Exception as e:
-                    print(
-                        'Exception retrieving image information for submission {0} "{1}" with image preview {2}: {3}'.format(
-                            submission.id, submission.title, preview_image, e))
-                    continue
+                response = None
+                while response is None:
+                    try:
+                        response = imgspy.info(preview_image['url'])
+                    except Exception as e:
+                        print(
+                            'Exception retrieving image information for submission {0} "{1}" with image preview {2}: {3}'.format(
+                                submission.id, submission.title, preview_image, e))
                 width, height = response['width'], response['height']
                 dimensions_ratio = width / height
                 if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
@@ -132,15 +143,6 @@ def get_media(submission):
 
 
 def get_posts(submissions, score_degradation=None):
-    def remove_outdated(cache):
-        filtered_cache = {}
-        for id, post in cache.items():
-            if post['hours_since_creation'] <= 24 * 2:
-                filtered_cache[id] = post
-            else:
-                print('removed outdated post {0} "{1}"'.format(id, post['title']))
-        cache = filtered_cache
-
     post_cache = {}
 
     # session method
@@ -170,7 +172,6 @@ def get_posts(submissions, score_degradation=None):
         if submission.id in post_cache:
             is_cached = True
             post = post_cache[submission.id]
-            post['cached'] = True
             # print('loaded "{0}" from cache'.format(submission.id))
 
         # attributes that need to be updated
@@ -179,9 +180,6 @@ def get_posts(submissions, score_degradation=None):
         post['upvote_ratio'] = int(submission.upvote_ratio * 100)
 
         # comments
-        test_time = time.time()
-        if is_cached:
-            post['new_comments_count'] = submission.num_comments - post['comment_count']
         post['comment_count'] = submission.num_comments
         # print('comment count took {}'.format(time.time() - test_time))
 
@@ -201,8 +199,9 @@ def get_posts(submissions, score_degradation=None):
         else:
             post['time_since_creation'] = '{} seconds ago'.format(elapsed_seconds)
 
-        # last visit time
-        if is_cached:
+        if 'visited' in post:
+            print('visited')
+            # post has been visited before
             elapsed_seconds = int(time.time() - post['visit_time'])
             elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
             elapsed_hours = int(elapsed_hours)
@@ -216,12 +215,13 @@ def get_posts(submissions, score_degradation=None):
                 post['time_since_visit'] = '{} minutes ago'.format(elapsed_minutes)
             else:
                 post['time_since_visit'] = '{} seconds ago'.format(elapsed_seconds)
-        post['visit_time'] = time.time()
+            post['new_comment_count'] = post['comment_count'] - post['visit_comment_count']
 
         # print('creation and visit time took {}'.format(time.time() - test_time))
 
         if not is_cached:
             # attributes that do not need to be updated
+            post['id'] = submission.id
             post['title'] = submission.title
             post['shortlink'] = submission.shortlink
             # post['creation_time'] = submission.created_utc
@@ -296,6 +296,7 @@ def get_image_posts(submissions):
         image_url = image_submission.url
 
         post = {}
+        post['id'] = image_submission.id
         post['title'] = image_submission.title
         post['score'] = image_submission.score
         post['shortlink'] = image_submission.shortlink
@@ -359,12 +360,42 @@ def show_favorite_subreddits():
     if request.method == 'POST':
         data = request.get_json()
         # return current subreddit name
-        if len(data) == 1 and 'subredditIndex' in data:
-            if data['subredditIndex'] < len(subreddit_names):
-                return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
-            else:
-                return jsonify(), 404
+        if len(data) == 1:
+            if 'subredditIndex' in data:
+                if data['subredditIndex'] < len(subreddit_names):
+                    return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
+            elif 'clickedId' in data:
+                try:
+                    with lock:
+                        with open(CACHE_FILE_NAME, 'r') as f:
+                            post_cache = json.load(f)
+                            remove_outdated(post_cache)
+                except FileNotFoundError:
+                    return
 
+                clicked_id = data['clickedId']
+                print('Clicked {}'.format(clicked_id))
+                post = post_cache[clicked_id]
+                post['visited'] = True
+                post['visit_time'] = time.time()  # time on click
+                post['visit_comment_count'] = post['comment_count']  # number of comments on click
+
+                # save cache
+                with lock:
+                    post_cache = None
+                    try:
+                        with open(CACHE_FILE_NAME, 'r') as f:
+                            post_cache = json.load(f)
+                    except FileNotFoundError:
+                        pass
+                    # merge data
+                    if post_cache is not None:
+                        post_cache[clicked_id].update(post)
+                    with open(CACHE_FILE_NAME, 'w') as f:
+                        # print('dumping {}'.format(post_cache))
+                        json.dump(post_cache, f)
+                return jsonify(), 200
+            return jsonify(), 404
         # return post data
         cur_sub_num = data['subredditIndex']
         cur_post_num = data['postIndex']

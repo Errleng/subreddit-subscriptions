@@ -213,15 +213,31 @@
                     // add basic post information
                     let postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
-                    if (data.hasOwnProperty("cached")) {
-                        postAnchor.innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]}) (${data["time_since_visit"]}) (${data["comment_count"]}, ${data["new_comments_count"]} new)</p>`;
-                    } else {
-                        postAnchor.innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]}) (${data["comment_count"]})</p>`;
+                    let innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`;
+                    if (data.hasOwnProperty("time_since_visit")) {
+                        innerHTML += ` (${data["time_since_visit"]})`;
+                    }
+                    innerHTML += ` (${data["comment_count"]}`;
+                    if (data.hasOwnProperty("new_comment_count")) {
+                        if (data["new_comment_count"] > 0) {
+                            innerHTML += `, <span style="color:red;">${data["new_comment_count"]} new</span>`;
+                        }
+                    }
+                    innerHTML += ")";
+                    innerHTML += "</p>"
+                    postAnchor.innerHTML = innerHTML;
+                    postAnchor.onclick = () => {
+                        fetch("favorites", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify({"clickedId": data["id"]})
+                        });
                     }
 
                     // check and add post preview image
                     if (data.hasOwnProperty("image_preview")) {
-                        console.log(data)
                         let imageAnchor = postTemplateClone.querySelector("#imageAnchor");
                         imageAnchor.href = data["shortlink"];
                         let imageEmbed = postTemplateClone.querySelector("#imageEmbed");
@@ -275,7 +291,7 @@
     }
 
     const loadAllButton = document.querySelector('button');
-    loadAllButton.addEventListener('click', event => {
+    loadAllButton.addEventListener('click', () => {
         let subreddits = document.querySelectorAll("div[id^='subreddit_']");
         let subredditIndex = subreddits.length;
         loadSubreddit(subredditIndex, SUBREDDIT_MAX_POSTS, function loadSubredditRecursive() {
