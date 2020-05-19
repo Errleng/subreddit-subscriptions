@@ -96,6 +96,46 @@
         }
     }
 
+    // keyboard shortcuts
+    let currentPost = document.querySelector("[id^='post_']");
+    document.addEventListener("keydown", (event) => {
+        const postSelector = "div[id^='post_']";
+        const keyName = event.key;
+        if (keyName === "s") {
+            // scroll down
+            if (currentPost === null) {
+                currentPost = document.querySelector(postSelector);
+            }
+            let nextPost = currentPost.nextElementSibling;
+            if (nextPost === null || !nextPost.id.startsWith("post_")) {
+                // move to next subreddit
+                console.log(currentPost.parentElement.nextElementSibling)
+                nextPost = currentPost.parentElement.nextElementSibling.querySelector(postSelector);
+            }
+            if (nextPost !== null && nextPost !== undefined) {
+                currentPost = nextPost;
+                currentPost.scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+            }
+            console.log(currentPost);
+        } else if (keyName === "f") {
+            // scroll up
+            if (currentPost === null) {
+                currentPost = document.querySelector("div[id^='post_']");
+            }
+            let nextPost = currentPost.previousElementSibling;
+            if (nextPost === null || !nextPost.id.startsWith("post_")) {
+                // move to previous subreddit
+                let posts = currentPost.parentElement.previousElementSibling.querySelectorAll(postSelector);
+                nextPost = posts[posts.length - 1];
+            }
+            if (nextPost !== null && nextPost !== undefined) {
+                currentPost = nextPost;
+                currentPost.scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+            }
+            console.log(currentPost);
+        }
+    });
+
     function load(subredditIndex, postAmount) {
         // loads subreddits, by creating a new one or adding posts to an existing one
 
@@ -226,7 +266,8 @@
                     innerHTML += ")";
                     innerHTML += "</p>"
                     postAnchor.innerHTML = innerHTML;
-                    postAnchor.onclick = () => {
+
+                    const clickHandler = () => {
                         fetch("favorites", {
                             method: "POST",
                             headers: {
@@ -234,12 +275,27 @@
                             },
                             body: JSON.stringify({"clickedId": data["id"]})
                         });
-                    }
+                    };
+
+                    postAnchor.onclick = clickHandler;
+                    postAnchor.onauxclick = (event) => {
+                        if (event.button === 1) {
+                            // middle mouse click
+                            clickHandler();
+                        }
+                    };
 
                     // check and add post preview image
                     if (data.hasOwnProperty("image_preview")) {
-                        let imageAnchor = postTemplateClone.querySelector("#imageAnchor");
+                        const imageAnchor = postTemplateClone.querySelector("#imageAnchor");
                         imageAnchor.href = data["shortlink"];
+                        imageAnchor.onclick = clickHandler;
+                        imageAnchor.onauxclick = (event) => {
+                            if (event.button === 1) {
+                                // middle mouse click
+                                clickHandler();
+                            }
+                        };
                         let imageEmbed = postTemplateClone.querySelector("#imageEmbed");
                         imageEmbed.src = data["image_preview"];
                     } else {
