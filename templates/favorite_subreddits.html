@@ -53,36 +53,36 @@
     const POST_STEP = SUBREDDIT_MAX_POSTS;
 
     // declare global variables
-    let content = document.getElementById("content");
-    let sentinel = document.getElementById("sentinel");
-    let subredditTemplate = document.getElementById("subredditTemplate");
-    let postTemplate = document.getElementById("postTemplate");
+    const content = document.getElementById("content");
+    const sentinel = document.getElementById("sentinel");
+    const subredditTemplate = document.getElementById("subredditTemplate");
+    const postTemplate = document.getElementById("postTemplate");
 
     // initialize intersection observer
-    let intersectionOptions = {
+    const intersectionOptions = {
         // rootMargin: "100%"
     };
-    let intersectionObserver = new IntersectionObserver(intersectionCallback, intersectionOptions);
+    const intersectionObserver = new IntersectionObserver(intersectionCallback, intersectionOptions);
     intersectionObserver.observe(sentinel);
 
     function intersectionCallback(entries) {
         if (entries[0].intersectionRatio > 0) {
             // get last subreddit
-            let subreddits = document.querySelectorAll("div[id^='subreddit_']");
+            const subreddits = document.querySelectorAll("div[id^='subreddit_']");
 
             if (subreddits.length > 0) {
                 console.log('subreddits exist');
                 // subreddits exist
-                let lastSubreddit = subreddits[subreddits.length - 1];
-                let lastSubredditPostCount = lastSubreddit.querySelectorAll("div[id^='post_']").length;
+                const lastSubreddit = subreddits[subreddits.length - 1];
+                const lastSubredditPostCount = lastSubreddit.querySelectorAll("div[id^='post_']").length;
 
                 console.log(subreddits, lastSubreddit, lastSubredditPostCount);
 
                 // check if subreddit is finished loading
-                let completionIndicator = lastSubreddit.querySelector("div#subredditDone");
+                const completionIndicator = lastSubreddit.querySelector("div#subredditDone");
                 if (completionIndicator === undefined) {
                     // subreddit not done loading
-                    let advanceAmount = Math.min(POST_STEP, SUBREDDIT_MAX_POSTS - lastSubredditPostCount);
+                    const advanceAmount = Math.min(POST_STEP, SUBREDDIT_MAX_POSTS - lastSubredditPostCount);
                     load(subreddits.length - 1, advanceAmount);
                 } else {
                     // load new subreddit
@@ -124,8 +124,8 @@
             }
             let nextPost = currentPost.previousElementSibling;
             if (nextPost === null || !nextPost.id.startsWith("post_")) {
-                // move to previous subreddit
-                let posts = currentPost.parentElement.previousElementSibling.querySelectorAll(postSelector);
+                // move to previou
+                const posts = currentPost.parentElement.previousElementSibling.querySelectorAll(postSelector);
                 nextPost = posts[posts.length - 1];
             }
             if (nextPost !== null && nextPost !== undefined) {
@@ -141,18 +141,18 @@
 
         console.log('load', subredditIndex, postAmount);
 
-        let subreddit = document.querySelector(`#subreddit_${subredditIndex}`);
+        const subreddit = document.querySelector(`#subreddit_${subredditIndex}`);
         if (subreddit === null) {
             // subreddit does not exist, create it
             console.log('creating new subreddit');
             loadSubreddit(subredditIndex, postAmount);
         } else {
             // subreddit does exist, load posts if not finished loading
-            let completionIndicator = subreddit.querySelector("div#subredditDone");
+            const completionIndicator = subreddit.querySelector("div#subredditDone");
             if (completionIndicator === undefined) {
                 // subreddit not finished loading
-                let subredditPosts = subreddit.querySelectorAll("div[id^='post_']");
-                let postIndex = subredditPosts.length;
+                const subredditPosts = subreddit.querySelectorAll("div[id^='post_']");
+                const postIndex = subredditPosts.length;
 
                 console.log('loading in progress');
                 loadPosts(subredditIndex - 1, postIndex, postAmount);
@@ -166,33 +166,33 @@
         console.log('load subreddit', subredditIndex);
 
         // request subreddit name and create subreddit div
-        let request = new XMLHttpRequest();
+        const request = new XMLHttpRequest();
         request.open("POST", AJAX_URL);
         request.setRequestHeader("Content-Type", "application/json");
         request.onreadystatechange = function () {
             if (request.readyState === 4 && request.status === 200) {
-                let subredditTemplateClone = subredditTemplate.content.cloneNode(true);
-                let data = JSON.parse(request.response);
+                const subredditTemplateClone = subredditTemplate.content.cloneNode(true);
+                const data = JSON.parse(request.response);
 
-                let subredditDiv = subredditTemplateClone.querySelector("#subredditDiv");
+                const subredditDiv = subredditTemplateClone.querySelector("#subredditDiv");
 
                 // set subreddit heading
-                let subredditNameHeading = subredditDiv.querySelector("#subredditName");
+                const subredditNameHeading = subredditDiv.querySelector("#subredditName");
                 subredditNameHeading.innerHTML = `r/${data["subreddit_name"]}`;
 
                 // set sort type
-                let sortSelectElement = subredditDiv.querySelector("#sortDiv");
+                const sortSelectElement = subredditDiv.querySelector("#sortDiv");
                 sortSelectElement.addEventListener("change", (event) => {
                     // remove current subreddit posts and reload
 
                     // get subreddit info
-                    let subredditDiv = sortSelectElement.parentNode;
-                    let subredditIndex = parseInt(subredditDiv.id.match(/\d+$/)[0]);
+                    const subredditDiv = sortSelectElement.parentNode;
+                    const subredditIndex = parseInt(subredditDiv.id.match(/\d+$/)[0]);
 
                     console.log(`Sort ${event.target.value} for subreddit #${subredditIndex}`);
 
                     // remove old posts
-                    let posts = subredditDiv.querySelectorAll("div[id^='post_']");
+                    const posts = subredditDiv.querySelectorAll("div[id^='post_']");
 
                     // load new posts
                     loadPosts(subredditIndex, 0, SUBREDDIT_MAX_POSTS, () => {
@@ -216,7 +216,7 @@
             }
         };
 
-        let requestContent = JSON.stringify({
+        const requestContent = JSON.stringify({
             subredditIndex: subredditIndex
         });
 
@@ -228,30 +228,30 @@
         const AJAX_URL = "favorites";
 
         // find the subreddit to load posts in
-        let subredditDiv = document.querySelector(`#subreddit_${subredditIndex}`);
+        const subredditDiv = document.querySelector(`#subreddit_${subredditIndex}`);
 
         // request post data
-        let request = new XMLHttpRequest();
+        const request = new XMLHttpRequest();
         request.open("POST", AJAX_URL);
         request.setRequestHeader("Content-Type", "application/json");
         request.onreadystatechange = function () {
             if (request.readyState === 4 && request.status === 200) {
-                let responseJSON = JSON.parse(request.response);
+                const responseJSON = JSON.parse(request.response);
                 console.log(`subreddit ${subredditIndex} response length ${responseJSON.length}`)
                 for (let postCount = 0; postCount < responseJSON.length; ++postCount) {
-                    let data = responseJSON[postCount];
+                    const data = responseJSON[postCount];
 
                     // create post div in subreddit div
-                    let postId = "post_" + postCount;
-                    let postDiv = document.createElement("div");
+                    const postId = "post_" + postCount;
+                    const postDiv = document.createElement("div");
                     postDiv.id = postId;
                     subredditDiv.appendChild(postDiv);
 
                     // clone post template
-                    let postTemplateClone = postTemplate.content.cloneNode(true);
+                    const postTemplateClone = postTemplate.content.cloneNode(true);
 
                     // add basic post information
-                    let postAnchor = postTemplateClone.querySelector("#postAnchor");
+                    const postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
                     let innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`;
                     if (data.hasOwnProperty("time_since_visit")) {
@@ -296,19 +296,19 @@
                                 clickHandler();
                             }
                         };
-                        let imageEmbed = postTemplateClone.querySelector("#imageEmbed");
+                        const imageEmbed = postTemplateClone.querySelector("#imageEmbed");
                         imageEmbed.src = data["image_preview"];
                     } else {
-                        let imageDiv = postTemplateClone.querySelector("#imageDiv");
+                        const imageDiv = postTemplateClone.querySelector("#imageDiv");
                         imageDiv.parentNode.removeChild(imageDiv);
                     }
 
                     // check and add post media
                     if (data.hasOwnProperty("media_preview")) {
-                        let mediaDiv = postTemplateClone.querySelector("#mediaDiv");
+                        const mediaDiv = postTemplateClone.querySelector("#mediaDiv");
                         mediaDiv.innerHTML = data["media_preview"];
                     } else {
-                        let mediaDiv = postTemplateClone.querySelector("#mediaDiv");
+                        const mediaDiv = postTemplateClone.querySelector("#mediaDiv");
                         mediaDiv.parentNode.removeChild(mediaDiv);
                     }
 
@@ -317,7 +317,7 @@
 
                 // check if completed by testing if max posts is reached or less posts are returned than expected
                 if (postIndex + postAmount >= SUBREDDIT_MAX_POSTS || responseJSON.length < postAmount) {
-                    let completionIndicator = document.createElement("div");
+                    const completionIndicator = document.createElement("div");
                     completionIndicator.id = "subredditDone";
                     subredditDiv.appendChild(completionIndicator);
                 }
@@ -329,12 +329,12 @@
             }
         };
 
-        let requestContent = JSON.stringify({
+        const requestContent = JSON.stringify({
             subredditIndex: subredditIndex,
             postIndex: postIndex,
             postAmount: postAmount,
             sortType: (() => {
-                let sortSelectElement = subredditDiv.querySelector("#sortSelect");
+                const sortSelectElement = subredditDiv.querySelector("#sortSelect");
                 if (sortSelectElement === null) {
                     return "day";
                 } else {
@@ -348,11 +348,11 @@
 
     const loadAllButton = document.querySelector('button');
     loadAllButton.addEventListener('click', () => {
-        let subreddits = document.querySelectorAll("div[id^='subreddit_']");
-        let subredditIndex = subreddits.length;
+        const subreddits = document.querySelectorAll("div[id^='subreddit_']");
+        const subredditIndex = subreddits.length;
         loadSubreddit(subredditIndex, SUBREDDIT_MAX_POSTS, function loadSubredditRecursive() {
-            let subreddits = document.querySelectorAll("div[id^='subreddit_']");
-            let subredditIndex = subreddits.length;
+            const subreddits = document.querySelectorAll("div[id^='subreddit_']");
+            const subredditIndex = subreddits.length;
             loadSubreddit(subredditIndex, SUBREDDIT_MAX_POSTS, loadSubredditRecursive);
         });
     });
