@@ -37,7 +37,7 @@ def remove_outdated(cache):
             filtered_cache[post_id] = post
         else:
             print('removed outdated post {0} "{1}"'.format(post_id, post['title']))
-    cache = filtered_cache
+    return filtered_cache
 
 
 def get_image(submission):
@@ -155,7 +155,7 @@ def get_posts(submissions, score_degradation=None):
         with lock:
             with open(CACHE_FILE_NAME, 'r') as f:
                 post_cache = json.load(f)
-                remove_outdated(post_cache)
+                post_cache = remove_outdated(post_cache)
     except FileNotFoundError:
         pass
 
@@ -263,7 +263,7 @@ def get_posts(submissions, score_degradation=None):
             pass
         # merge data
         if old_post_cache is not None:
-            remove_outdated(old_post_cache)
+            old_post_cache = remove_outdated(old_post_cache)
             old_post_cache.update(post_cache)
             post_cache = {**old_post_cache, **post_cache}
         with open(CACHE_FILE_NAME, 'w') as f:
@@ -369,7 +369,6 @@ def show_favorite_subreddits():
                     with lock:
                         with open(CACHE_FILE_NAME, 'r') as f:
                             post_cache = json.load(f)
-                            remove_outdated(post_cache)
                 except FileNotFoundError:
                     return
 
@@ -386,6 +385,7 @@ def show_favorite_subreddits():
                     try:
                         with open(CACHE_FILE_NAME, 'r') as f:
                             post_cache = json.load(f)
+                            post_cache = remove_outdated(post_cache)
                     except FileNotFoundError:
                         pass
                     # merge data
