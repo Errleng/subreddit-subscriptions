@@ -109,14 +109,13 @@
             let nextPost = currentPost.nextElementSibling;
             if (nextPost === null || !nextPost.id.startsWith("post_")) {
                 // move to next subreddit
-                console.log(currentPost.parentElement.nextElementSibling)
+                console.log(currentPost.parentElement.nextElementSibling);
                 nextPost = currentPost.parentElement.nextElementSibling.querySelector(postSelector);
             }
             if (nextPost !== null && nextPost !== undefined) {
                 currentPost = nextPost;
-                currentPost.scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+                currentPost.scrollIntoView(true);
             }
-            console.log(currentPost);
         } else if (keyName === "f") {
             // scroll up
             if (currentPost === null) {
@@ -130,9 +129,8 @@
             }
             if (nextPost !== null && nextPost !== undefined) {
                 currentPost = nextPost;
-                currentPost.scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+                currentPost.scrollIntoView(true);
             }
-            console.log(currentPost);
         }
     });
 
