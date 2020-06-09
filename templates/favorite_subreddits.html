@@ -13,6 +13,8 @@
     <template id="subredditTemplate">
         <div id="subredditDiv">
             <h1 id="subredditName"></h1>
+            <p id="subredditSubscribers"></p>
+            <br>
             <div id="sortDiv">
                 <label for="sortSelect">Choose a sorting type</label>
                 <select id="sortSelect" name="sorts">
@@ -24,6 +26,8 @@
                     <option value="all">All</option>
                 </select>
             </div>
+            <br>
+            <div id="subredditStart"></div>
         </div>
     </template>
     <template id="postTemplate">
@@ -97,39 +101,66 @@
     }
 
     // keyboard shortcuts
-    let currentPost = document.querySelector("[id^='post_']");
+    let currentElement = document.querySelector("[id^='post_']");
     document.addEventListener("keydown", (event) => {
         const postSelector = "div[id^='post_']";
         const keyName = event.key;
         if (keyName === "s") {
             // scroll down
-            if (currentPost === null) {
-                currentPost = document.querySelector(postSelector);
+            if (currentElement === null) {
+                currentElement = document.querySelector(postSelector);
             }
-            let nextPost = currentPost.nextElementSibling;
-            if (nextPost === null || !nextPost.id.startsWith("post_")) {
-                // move to next subreddit
-                console.log(currentPost.parentElement.nextElementSibling);
-                nextPost = currentPost.parentElement.nextElementSibling.querySelector(postSelector);
+            console.log("current", currentElement)
+            let nextElement = null;
+            if (currentElement.id.startsWith("subreddit_")) {
+                // move into child post
+                nextElement = currentElement.querySelector(postSelector);
+            } else if (currentElement.id.startsWith("post_")) {
+                // move to next post
+                nextElement = currentElement.nextElementSibling;
+                if (nextElement.id === "subredditDone") {
+                    // move to next subreddit
+                    nextElement = nextElement.parentElement.nextElementSibling;
+                }
+            } else {
+                console.log(`current element is not a subreddit nor a post! current element: ${currentElement}, next element: ${nextElement}`);
             }
-            if (nextPost !== null && nextPost !== undefined) {
-                currentPost = nextPost;
-                currentPost.scrollIntoView(true);
+            if (nextElement !== null && nextElement !== undefined) {
+                if ((nextElement.id.startsWith("subreddit_") || nextElement.id.startsWith("post_"))) {
+                    currentElement = nextElement;
+                    currentElement.scrollIntoView(true);
+                } else {
+                    console.log(`next element is neither a subreddit nor a post`, nextElement);
+                }
             }
         } else if (keyName === "f") {
             // scroll up
-            if (currentPost === null) {
-                currentPost = document.querySelector("div[id^='post_']");
+            if (currentElement === null) {
+                currentElement = document.querySelector(postSelector);
             }
-            let nextPost = currentPost.previousElementSibling;
-            if (nextPost === null || !nextPost.id.startsWith("post_")) {
-                // move to previou
-                const posts = currentPost.parentElement.previousElementSibling.querySelectorAll(postSelector);
-                nextPost = posts[posts.length - 1];
+            console.log("current", currentElement)
+            let nextElement = null;
+            if (currentElement.id.startsWith("subreddit_")) {
+                // move into last post of previous subreddit
+                const posts = currentElement.previousElementSibling.querySelectorAll(postSelector);
+                nextElement = posts[posts.length - 1];
+            } else if (currentElement.id.startsWith("post_")) {
+                // move to previous post
+                nextElement = currentElement.previousElementSibling;
+                if (nextElement.id === "subredditStart") {
+                    // move to start of the subreddit
+                    nextElement = nextElement.parentElement;
+                }
+            } else {
+                console.log(`current element is not a subreddit nor a post! current element: ${currentElement}, next element: ${nextElement}`);
             }
-            if (nextPost !== null && nextPost !== undefined) {
-                currentPost = nextPost;
-                currentPost.scrollIntoView(true);
+            if (nextElement !== null && nextElement !== undefined) {
+                if ((nextElement.id.startsWith("subreddit_") || nextElement.id.startsWith("post_"))) {
+                    currentElement = nextElement;
+                    currentElement.scrollIntoView(true);
+                } else {
+                    console.log(`next element is neither a subreddit nor a post`, nextElement);
+                }
             }
         }
     });
@@ -169,6 +200,7 @@
         request.setRequestHeader("Content-Type", "application/json");
         request.onreadystatechange = function () {
             if (request.readyState === 4 && request.status === 200) {
+                // add subreddit
                 const subredditTemplateClone = subredditTemplate.content.cloneNode(true);
                 const data = JSON.parse(request.response);
 
@@ -177,6 +209,14 @@
                 // set subreddit heading
                 const subredditNameHeading = subredditDiv.querySelector("#subredditName");
                 subredditNameHeading.innerHTML = `r/${data["subreddit_name"]}`;
+
+                // set subreddit subscriber coutn
+                const subredditSubscriberCount = subredditDiv.querySelector("#subredditSubscribers");
+                if (data["subreddit_subscriber_text"] === "") {
+                    subredditSubscriberCount.innerHTML = `${data["subreddit_subscribers"]} subscribers`;
+                } else {
+                    subredditSubscriberCount.innerHTML = `${data["subreddit_subscribers"]} ${data["subreddit_subscriber_text"]}`;
+                }
 
                 // set sort type
                 const sortSelectElement = subredditDiv.querySelector("#sortDiv");
@@ -201,6 +241,7 @@
                     });
                 });
 
+                // set subreddit id
                 subredditDiv.id = "subreddit_" + subredditIndex;
                 content.appendChild(subredditDiv);
 

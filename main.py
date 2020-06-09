@@ -362,8 +362,12 @@ def show_favorite_subreddits():
         # return current subreddit name
         if len(data) == 1:
             if 'subredditIndex' in data:
+                subreddit = reddit.subreddit(subreddit_names[data['subredditIndex']])
+                widgets = subreddit.widgets
+                # id_card is for reddit redesign, not old reddit
+                id_card = widgets.id_card
                 if data['subredditIndex'] < len(subreddit_names):
-                    return jsonify({'subreddit_name': subreddit_names[data['subredditIndex']]})
+                    return jsonify({'subreddit_name': subreddit.display_name, 'subreddit_subscribers': subreddit.subscribers, 'subreddit_subscriber_text': id_card.subscribersText})
             elif 'clickedId' in data:
                 try:
                     with lock:
