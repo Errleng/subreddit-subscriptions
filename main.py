@@ -19,7 +19,9 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_names_file:
     for line in subreddit_names_file:
         for name in line.split():
-            subreddit_names.append(name)
+            # check if commented out
+            if not name.startswith('#'):
+                subreddit_names.append(name)
 
 # create a read-only Reddit instance
 reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
@@ -62,8 +64,9 @@ def get_image(submission):
             # network request is the main bottleneck
             # request + PIL is slower than headers
             submission_image = preview_resolutions[0]['url']
+
+            # go from largest to smallest because most preview images are small
             for preview_image in reversed(preview_resolutions):
-                # go from largest to smallest because most preview images are small
                 response = None
                 while response is None:
                     try:
@@ -200,7 +203,6 @@ def get_posts(submissions, score_degradation=None):
             post['time_since_creation'] = '{} seconds ago'.format(elapsed_seconds)
 
         if 'visited' in post:
-            print('visited')
             # post has been visited before
             elapsed_seconds = int(time.time() - post['visit_time'])
             elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
@@ -238,7 +240,7 @@ def get_posts(submissions, score_degradation=None):
                     post['image_url'] = submission.url
                 # print("media", time.time() - start_time)
 
-        print('{0} - {1}, time: {2}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4)))
+        print('{0} - {1}, time: {2}, visited: {3}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4), 'visited' in post))
         posts.append(post)
 
         post_cache[submission.id] = post
