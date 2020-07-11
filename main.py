@@ -35,11 +35,62 @@ def is_valid_thumbnail(thumbnail):
 def remove_outdated(cache):
     filtered_cache = {}
     for post_id, post in cache.items():
-        if post['hours_since_creation'] <= 24 * 2:
+        if post['hours_since_creation'] <= 24 * 4:
             filtered_cache[post_id] = post
         else:
             print('removed outdated post {0} "{1}"'.format(post_id, post['title']))
     return filtered_cache
+
+
+def update_post_time_data(post, submission):
+    elapsed_seconds = int(time.time() - submission.created_utc)
+    elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+    elapsed_hours = int(elapsed_hours)
+    post['hours_since_creation'] = elapsed_hours
+    elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+    elapsed_minutes = int(elapsed_minutes)
+    post['minutes_since_creation'] = elapsed_minutes
+    if elapsed_hours > 0:
+        post['time_since_creation'] = '{} hours ago'.format(elapsed_hours)
+    elif elapsed_minutes > 0:
+        post['time_since_creation'] = '{} minutes ago'.format(elapsed_minutes)
+    else:
+        post['time_since_creation'] = '{} seconds ago'.format(elapsed_seconds)
+
+    return post
+
+
+def update_cached_post(cached_post):
+    # get submission object
+    submission = reddit.submission(id=cached_post['id'])
+
+    # update attributes
+    cached_post['score'] = submission.score
+    cached_post['upvote_ratio'] = int(submission.upvote_ratio * 100)
+    cached_post['comment_count'] = submission.num_comments
+
+    # update time data
+    cached_post = update_post_time_data(cached_post, submission)
+
+    # update time data for clicked post
+    if 'visited' in cached_post:
+        # post has been visited before
+        elapsed_seconds = int(time.time() - cached_post['visit_time'])
+        elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
+        elapsed_hours = int(elapsed_hours)
+        cached_post['hours_since_visit'] = elapsed_hours
+        elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
+        elapsed_minutes = int(elapsed_minutes)
+        cached_post['minutes_since_visit'] = elapsed_minutes
+        if elapsed_hours > 0:
+            cached_post['time_since_visit'] = '{} hours ago'.format(elapsed_hours)
+        elif elapsed_minutes > 0:
+            cached_post['time_since_visit'] = '{} minutes ago'.format(elapsed_minutes)
+        else:
+            cached_post['time_since_visit'] = '{} seconds ago'.format(elapsed_seconds)
+        cached_post['new_comment_count'] = cached_post['comment_count'] - cached_post['visit_comment_count']
+
+    return cached_post
 
 
 def get_image(submission):
@@ -175,58 +226,22 @@ def get_posts(submissions, score_degradation=None):
         if submission.id in post_cache:
             is_cached = True
             post = post_cache[submission.id]
+            post = update_cached_post(post)
             # print('loaded "{0}" from cache'.format(submission.id))
-
-        # attributes that need to be updated
-        post['score'] = submission.score
-        # upvote ratio takes a lot of time to retrieve, likely uses up another API request
-        post['upvote_ratio'] = int(submission.upvote_ratio * 100)
-
-        # comments
-        post['comment_count'] = submission.num_comments
-        # print('comment count took {}'.format(time.time() - test_time))
-
-        # creation time
-        test_time = time.time()
-        elapsed_seconds = int(time.time() - submission.created_utc)
-        elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
-        elapsed_hours = int(elapsed_hours)
-        post['hours_since_creation'] = elapsed_hours
-        elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
-        elapsed_minutes = int(elapsed_minutes)
-        post['minutes_since_creation'] = elapsed_minutes
-        if elapsed_hours > 0:
-            post['time_since_creation'] = '{} hours ago'.format(elapsed_hours)
-        elif elapsed_minutes > 0:
-            post['time_since_creation'] = '{} minutes ago'.format(elapsed_minutes)
-        else:
-            post['time_since_creation'] = '{} seconds ago'.format(elapsed_seconds)
-
-        if 'visited' in post:
-            # post has been visited before
-            elapsed_seconds = int(time.time() - post['visit_time'])
-            elapsed_hours, elapsed_seconds = divmod(elapsed_seconds, 3600)
-            elapsed_hours = int(elapsed_hours)
-            post['hours_since_visit'] = elapsed_hours
-            elapsed_minutes, elapsed_seconds = divmod(elapsed_seconds, 60)
-            elapsed_minutes = int(elapsed_minutes)
-            post['minutes_since_visit'] = elapsed_minutes
-            if elapsed_hours > 0:
-                post['time_since_visit'] = '{} hours ago'.format(elapsed_hours)
-            elif elapsed_minutes > 0:
-                post['time_since_visit'] = '{} minutes ago'.format(elapsed_minutes)
-            else:
-                post['time_since_visit'] = '{} seconds ago'.format(elapsed_seconds)
-            post['new_comment_count'] = post['comment_count'] - post['visit_comment_count']
-
         # print('creation and visit time took {}'.format(time.time() - test_time))
 
         if not is_cached:
             # attributes that do not need to be updated
             post['id'] = submission.id
             post['title'] = submission.title
+            post['subreddit'] = submission.subreddit.display_name
             post['shortlink'] = submission.shortlink
+            post['score'] = submission.score
+            post['upvote_ratio'] = int(submission.upvote_ratio * 100)
+            post['comment_count'] = submission.num_comments
             # post['creation_time'] = submission.created_utc
+
+            post = update_post_time_data(post, submission)
 
             if not submission.is_self:
                 # media data
@@ -300,6 +315,7 @@ def get_image_posts(submissions):
         post = {}
         post['id'] = image_submission.id
         post['title'] = image_submission.title
+        post['subreddit'] = image_submission.subreddit.display_name
         post['score'] = image_submission.score
         post['shortlink'] = image_submission.shortlink
 
@@ -312,6 +328,56 @@ def get_image_posts(submissions):
 
         posts.append(post)
         print('Done post in {0} seconds'.format(round(time.time() - start_time, 2)))
+
+    return posts
+
+
+def get_cached_posts(subreddit_name, min_hours=None, max_hours=None):
+    # this uses a for loop to find posts of certain subreddits
+    # however, most of the slow down is caused by updating data for posts
+
+    try:
+        with lock:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                post_cache = json.load(f)
+    except FileNotFoundError:
+        return
+
+    posts = []
+    for post_id, post in post_cache.items():
+        # filter posts for subreddit
+        if post['subreddit'] != subreddit_name:
+            continue
+
+        # filter posts for time range
+        submission = reddit.submission(post['id'])
+        post = update_post_time_data(post, submission)
+        if min_hours is not None:
+            if post['hours_since_creation'] < min_hours:
+                continue
+        if max_hours is not None:
+            if post['hours_since_creation'] > max_hours:
+                continue
+        posts.append(update_cached_post(post))
+
+    # sort posts by score in descending order
+    posts.sort(key=lambda item: item['score'], reverse=True)
+
+    # save cache
+    with lock:
+        old_post_cache = None
+        try:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                old_post_cache = json.load(f)
+        except FileNotFoundError:
+            pass
+        # merge data
+        if old_post_cache is not None:
+            old_post_cache = remove_outdated(old_post_cache)
+            old_post_cache.update(post_cache)
+            post_cache = {**old_post_cache, **post_cache}
+        with open(CACHE_FILE_NAME, 'w') as f:
+            json.dump(post_cache, f)
 
     return posts
 
@@ -427,6 +493,21 @@ def show_favorite_subreddits():
                 break
 
         posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
+
+        if SLOW_MODE:
+            print('slow mode')
+            # slow mode only shows posts older than 24 hours
+            # load cache, filter posts earlier than 24 hours
+            start_time = time.time()
+            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48)
+            end_time = time.time()
+            if len(cached_posts) > 0:
+                print('using cached posts', len(cached_posts))
+                posts = cached_posts
+            else:
+                print('no cached posts for r/{} meet requirements'.format(subreddit.display_name))
+            print('getting cached posts took {} seconds'.format(end_time - start_time))
+
         print('sub {0}, post {1}, {2} posts, offset {3}, {4}'.format(cur_sub_num, cur_post_num, post_amount,
                                                                      cur_post_num + post_amount, posts))
         return jsonify(posts)

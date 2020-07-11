@@ -15,3 +15,4 @@ IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 SUBREDDIT_NAMES_RELATIVE_PATH = '../favorite-subreddits.txt'
 STORAGE_DIRECTORY = 'storage'
 CACHE_FILE_NAME = STORAGE_DIRECTORY + '/cache.json'
+SLOW_MODE = True
