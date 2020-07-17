@@ -7,4 +7,6 @@ Displays media posts from subreddits
     * For some reason, some submissions will have a 'preview' attribute while others require it to be loaded, making them slower
 
 ## Plan
-* Implement option to select time period of top posts
+- [x] Implement option to select time period of top posts
+- [x] Implement a "slow mode" which only shows posts whose scores and comments have settled down
+    - This is to avoid wasting time looking at posts which are still very active

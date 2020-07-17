@@ -32,6 +32,50 @@ def is_valid_thumbnail(thumbnail):
     return (len(thumbnail) > 0) and (thumbnail != 'default') and (thumbnail != 'nsfw')
 
 
+def save_cache(post_cache, subreddit_name=None):
+    with lock:
+        if subreddit_name is not None:
+            print("{} acquired lock".format(subreddit_name))
+        old_post_cache = None
+        try:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                old_post_cache = json.load(f)
+        except FileNotFoundError:
+            pass
+        # merge data
+        if old_post_cache is not None:
+            # remove outdated
+            old_post_cache = remove_outdated(old_post_cache)
+            # update posts if they are newer
+            for post_id, post in post_cache.items():
+                if post_id in old_post_cache:
+                    old_post = old_post_cache[post_id]
+                    # if the post is newer, it will be older in either hours or just minutes
+                    post_time = post['hours_since_creation'] * 60 + post['minutes_since_creation']
+                    old_post_time = old_post['hours_since_creation'] * 60 + old_post['minutes_since_creation']
+                    if post_time > old_post_time:
+                        old_post_cache[post_id] = post
+                        print('lock: {}, updated post: {}\n{}\n{}'.format(lock, post['title'], old_post, old_post_cache[old_post['id']]))
+                else:
+                    # the post is new
+                    old_post_cache[post_id] = post
+                    print('new post {}'.format(post['title']))
+        try:
+            with open(CACHE_FILE_NAME, 'w') as f:
+                json.dump(old_post_cache, f)
+        except FileNotFoundError:
+            pass
+        try:
+            with open(CACHE_FILE_NAME, 'r') as f:
+                new_post_cache = json.load(f)
+                print("OLD = NEW? {}".format(new_post_cache == old_post_cache))
+        except FileNotFoundError:
+            pass
+
+        if subreddit_name is not None:
+            print("{} released lock".format(subreddit_name))
+
+
 def remove_outdated(cache):
     filtered_cache = {}
     for post_id, post in cache.items():
@@ -239,6 +283,7 @@ def get_posts(submissions, score_degradation=None):
             post['score'] = submission.score
             post['upvote_ratio'] = int(submission.upvote_ratio * 100)
             post['comment_count'] = submission.num_comments
+            post['display_count'] = 1  # how many times the post was DISPLAYED
             # post['creation_time'] = submission.created_utc
 
             post = update_post_time_data(post, submission)
@@ -255,7 +300,10 @@ def get_posts(submissions, score_degradation=None):
                     post['image_url'] = submission.url
                 # print("media", time.time() - start_time)
 
-        print('{0} - {1}, time: {2}, visited: {3}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4), 'visited' in post))
+        if 'display_count' not in post:
+            post['display_count'] = 1
+
+        print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4), 'visited' in post, post['display_count']))
         posts.append(post)
 
         post_cache[submission.id] = post
@@ -270,22 +318,11 @@ def get_posts(submissions, score_degradation=None):
                         "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
                             top_score, int(post['score']), percent_change))
                     break
-    # save cache
-    with lock:
-        old_post_cache = None
-        try:
-            with open(CACHE_FILE_NAME, 'r') as f:
-                old_post_cache = json.load(f)
-        except FileNotFoundError:
-            pass
-        # merge data
-        if old_post_cache is not None:
-            old_post_cache = remove_outdated(old_post_cache)
-            old_post_cache.update(post_cache)
-            post_cache = {**old_post_cache, **post_cache}
-        with open(CACHE_FILE_NAME, 'w') as f:
-            # print('dumping {}'.format(post_cache))
-            json.dump(post_cache, f)
+
+    for post in posts:
+        post['display_count'] += 1
+
+    save_cache(post_cache)
 
     return posts
 
@@ -332,7 +369,7 @@ def get_image_posts(submissions):
     return posts
 
 
-def get_cached_posts(subreddit_name, min_hours=None, max_hours=None):
+def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degradation=None):
     # this uses a for loop to find posts of certain subreddits
     # however, most of the slow down is caused by updating data for posts
 
@@ -340,10 +377,12 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None):
         with lock:
             with open(CACHE_FILE_NAME, 'r') as f:
                 post_cache = json.load(f)
+                remove_outdated(post_cache)
     except FileNotFoundError:
         return
 
     posts = []
+
     for post_id, post in post_cache.items():
         # filter posts for subreddit
         if post['subreddit'] != subreddit_name:
@@ -358,26 +397,42 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None):
         if max_hours is not None:
             if post['hours_since_creation'] > max_hours:
                 continue
-        posts.append(update_cached_post(post))
+
+        if 'visited' in post:
+            delta_comments = submission.num_comments - post['visit_comment_count']
+            # ignore post if comment count increase is less than or equal to 10%
+            if delta_comments > int(post['visit_comment_count'] * 0.1):
+                posts.append(update_cached_post(post))
+        else:
+            posts.append(update_cached_post(post))
 
     # sort posts by score in descending order
     posts.sort(key=lambda item: item['score'], reverse=True)
 
-    # save cache
-    with lock:
-        old_post_cache = None
-        try:
-            with open(CACHE_FILE_NAME, 'r') as f:
-                old_post_cache = json.load(f)
-        except FileNotFoundError:
-            pass
-        # merge data
-        if old_post_cache is not None:
-            old_post_cache = remove_outdated(old_post_cache)
-            old_post_cache.update(post_cache)
-            post_cache = {**old_post_cache, **post_cache}
-        with open(CACHE_FILE_NAME, 'w') as f:
-            json.dump(post_cache, f)
+    # score degradation
+    if score_degradation is not None:
+        top_score = None
+        for i in range(len(posts)):
+            post = posts[i]
+            if top_score is None:
+                top_score = int(post['score'])
+            else:
+                percent_change = (top_score - int(post['score'])) / top_score
+                if percent_change > score_degradation:
+                    print(
+                        "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
+                            top_score, int(post['score']), percent_change))
+                    posts = posts[:-(i-1)]
+                    break
+
+    for post in posts:
+        if 'display_count' not in post:
+            post['display_count'] = 1
+        else:
+            post['display_count'] += 1
+        print('{0} - {1}, visited: {2}, display_count: {3}\n'.format(post['shortlink'], post['title'],'visited' in post, post['display_count']))
+
+    save_cache(post_cache, subreddit_name=subreddit_name)
 
     return posts
 
@@ -460,11 +515,9 @@ def show_favorite_subreddits():
                             post_cache = remove_outdated(post_cache)
                     except FileNotFoundError:
                         pass
-                    # merge data
                     if post_cache is not None:
                         post_cache[clicked_id].update(post)
                     with open(CACHE_FILE_NAME, 'w') as f:
-                        # print('dumping {}'.format(post_cache))
                         json.dump(post_cache, f)
                 return jsonify(), 200
             return jsonify(), 404
@@ -497,9 +550,10 @@ def show_favorite_subreddits():
         if SLOW_MODE:
             print('slow mode')
             # slow mode only shows posts older than 24 hours
+            # posts which have been visited should no longer be shown because they have settled down by now
             # load cache, filter posts earlier than 24 hours
             start_time = time.time()
-            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48)
+            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48+8)
             end_time = time.time()
             if len(cached_posts) > 0:
                 print('using cached posts', len(cached_posts))
@@ -516,4 +570,4 @@ def show_favorite_subreddits():
 
 if __name__ == '__main__':
     app.run(debug=True)
-    # perhaps put JSON dumping here or use atexit
+    # perhaps put JSON dumping here or use at exit
