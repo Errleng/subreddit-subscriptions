@@ -55,7 +55,8 @@ def save_cache(post_cache, subreddit_name=None):
                     old_post_time = old_post['hours_since_creation'] * 60 + old_post['minutes_since_creation']
                     if post_time > old_post_time:
                         old_post_cache[post_id] = post
-                        print('lock: {}, updated post: {}\n{}\n{}'.format(lock, post['title'], old_post, old_post_cache[old_post['id']]))
+                        print('lock: {}, updated post: {}\n{}\n{}'.format(lock, post['title'], old_post,
+                                                                          old_post_cache[old_post['id']]))
                 else:
                     # the post is new
                     old_post_cache[post_id] = post
@@ -303,7 +304,10 @@ def get_posts(submissions, score_degradation=None):
         if 'display_count' not in post:
             post['display_count'] = 1
 
-        print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'], round(time.time() - start_time, 4), 'visited' in post, post['display_count']))
+        print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
+                                                                                round(time.time() - start_time, 4),
+                                                                                'visited' in post,
+                                                                                post['display_count']))
         posts.append(post)
 
         post_cache[submission.id] = post
@@ -422,7 +426,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
                     print(
                         "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
                             top_score, int(post['score']), percent_change))
-                    posts = posts[:-(i-1)]
+                    posts = posts[:-(i - 1)]
                     break
 
     for post in posts:
@@ -430,7 +434,9 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
             post['display_count'] = 1
         else:
             post['display_count'] += 1
-        print('{0} - {1}, visited: {2}, display_count: {3}\n'.format(post['shortlink'], post['title'],'visited' in post, post['display_count']))
+        print(
+            '{0} - {1}, visited: {2}, display_count: {3}\n'.format(post['shortlink'], post['title'], 'visited' in post,
+                                                                   post['display_count']))
 
     save_cache(post_cache, subreddit_name=subreddit_name)
 
@@ -485,13 +491,23 @@ def show_favorite_subreddits():
         # return current subreddit name
         if len(data) == 1:
             if 'subredditIndex' in data:
-                subreddit = reddit.subreddit(subreddit_names[data['subredditIndex']])
-                widgets = subreddit.widgets
-                # id_card is for reddit redesign, not old reddit
-                id_card = widgets.id_card
-                if data['subredditIndex'] < len(subreddit_names):
-                    return jsonify({'subreddit_name': subreddit.display_name, 'subreddit_subscribers': subreddit.subscribers, 'subreddit_subscriber_text': id_card.subscribersText})
+                try:
+                    subreddit = reddit.subreddit(subreddit_names[data['subredditIndex']])
+                    widgets = subreddit.widgets
+                    # id_card is for reddit redesign, not old reddit
+                    id_card = widgets.id_card
+                    if data['subredditIndex'] < len(subreddit_names):
+                        return jsonify(
+                            {'subreddit_name': subreddit.display_name, 'subreddit_subscribers': subreddit.subscribers,
+                             'subreddit_subscriber_text': id_card.subscribersText})
+                except exceptions.Forbidden:
+                    # subreddit is private so skip it and return a placeholder
+                    return jsonify(
+                        {'subreddit_name': subreddit_names[data['subredditIndex']], 'subreddit_subscribers': 0,
+                         'subreddit_subscriber_text': 'subscribers'})
             elif 'clickedId' in data:
+                # clicked posts are marked as such and will show changes in information
+
                 try:
                     with lock:
                         with open(CACHE_FILE_NAME, 'r') as f:
@@ -502,7 +518,7 @@ def show_favorite_subreddits():
                 clicked_id = data['clickedId']
                 print('Clicked {}'.format(clicked_id))
                 post = post_cache[clicked_id]
-                post['visited'] = True
+                post['visited'] = True  # marks the post as clicked on
                 post['visit_time'] = time.time()  # time on click
                 post['visit_comment_count'] = post['comment_count']  # number of comments on click
 
@@ -553,7 +569,7 @@ def show_favorite_subreddits():
             # posts which have been visited should no longer be shown because they have settled down by now
             # load cache, filter posts earlier than 24 hours
             start_time = time.time()
-            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48+8)
+            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48 + 8)
             end_time = time.time()
             if len(cached_posts) > 0:
                 print('using cached posts', len(cached_posts))
@@ -565,6 +581,7 @@ def show_favorite_subreddits():
         print('sub {0}, post {1}, {2} posts, offset {3}, {4}'.format(cur_sub_num, cur_post_num, post_amount,
                                                                      cur_post_num + post_amount, posts))
         return jsonify(posts)
+
     return render_template('favorite_subreddits.html')
 
 
