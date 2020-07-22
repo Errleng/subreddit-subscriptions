@@ -55,6 +55,7 @@
     // declare constants
     const SUBREDDIT_MAX_POSTS = 10;
     const POST_STEP = SUBREDDIT_MAX_POSTS;
+    const DISPLAY_COUNT_THRESHOLD = 5;
 
     // declare global variables
     const content = document.getElementById("content");
@@ -293,6 +294,12 @@
                     const postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
                     let innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`;
+
+                    // mark posts if they are to be removed in a future feature
+                    if (data['display_count'] > DISPLAY_COUNT_THRESHOLD) {
+                        postAnchor.style.color = "red";
+                    }
+
                     if (data.hasOwnProperty("time_since_visit")) {
                         innerHTML += ` (${data["time_since_visit"]})`;
                     }

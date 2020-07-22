@@ -16,3 +16,5 @@ SUBREDDIT_NAMES_RELATIVE_PATH = '../favorite-subreddits.txt'
 STORAGE_DIRECTORY = 'storage'
 CACHE_FILE_NAME = STORAGE_DIRECTORY + '/cache.json'
 SLOW_MODE = True
+OUTDATED_THRESHOLD = 24 * 4  # in hours
+COMMENT_COUNT_UPDATE_THRESHOLD = 0.1  # percent comment count must change by for the post to be shown again

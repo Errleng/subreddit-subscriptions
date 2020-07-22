@@ -80,7 +80,7 @@ def save_cache(post_cache, subreddit_name=None):
 def remove_outdated(cache):
     filtered_cache = {}
     for post_id, post in cache.items():
-        if post['hours_since_creation'] <= 24 * 4:
+        if post['hours_since_creation'] <= OUTDATED_THRESHOLD:
             filtered_cache[post_id] = post
         else:
             print('removed outdated post {0} "{1}"'.format(post_id, post['title']))
@@ -405,7 +405,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
         if 'visited' in post:
             delta_comments = submission.num_comments - post['visit_comment_count']
             # ignore post if comment count increase is less than or equal to 10%
-            if delta_comments > int(post['visit_comment_count'] * 0.1):
+            if delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD):
                 posts.append(update_cached_post(post))
         else:
             posts.append(update_cached_post(post))
