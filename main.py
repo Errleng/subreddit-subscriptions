@@ -7,14 +7,16 @@ import imgspy
 import praw
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from prawcore import exceptions
+from psaw import PushshiftAPI
 
 from constants import *
 
-app = Flask(__name__)
-app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
+# set up globals
+# cache read and write lock
+lock = threading.Lock()
 
-subreddit_names = []
 # read subreddit names from a file
+subreddit_names = []
 script_dir = os.path.dirname(os.path.realpath(__file__))
 with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_names_file:
     for line in subreddit_names_file:
@@ -23,9 +25,15 @@ with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_na
             if not name.startswith('#'):
                 subreddit_names.append(name)
 
+# set up Flask app
+app = Flask(__name__)
+app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
+
 # create a read-only Reddit instance
 reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
-lock = threading.Lock()
+
+# PSAW API
+api = PushshiftAPI(reddit)
 
 
 def is_valid_thumbnail(thumbnail):
@@ -61,9 +69,10 @@ def save_cache(post_cache, subreddit_name=None):
                     # the post is new
                     old_post_cache[post_id] = post
                     print('new post {}'.format(post['title']))
+            post_cache = old_post_cache
         try:
             with open(CACHE_FILE_NAME, 'w') as f:
-                json.dump(old_post_cache, f)
+                json.dump(post_cache, f)
         except FileNotFoundError:
             pass
         try:
@@ -266,16 +275,24 @@ def get_posts(submissions, score_degradation=None):
         # get generic submission data
         post = {}
 
-        # caching
-        is_cached = False
         if submission.id in post_cache:
-            is_cached = True
+            # handle cached post
             post = post_cache[submission.id]
-            post = update_cached_post(post)
-            # print('loaded "{0}" from cache'.format(submission.id))
-        # print('creation and visit time took {}'.format(time.time() - test_time))
 
-        if not is_cached:
+            # do not displayed visited posts which have not changed
+            if 'visited' in post:
+                delta_comments = submission.num_comments - post['visit_comment_count']
+                # ignore post if comment count increase is less than or equal to 10%
+                if delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD):
+                    post = update_cached_post(post)
+                    post['display_count'] += 1
+                    posts.append(post)
+            else:
+                post = update_cached_post(post)
+                post['display_count'] += 1
+                posts.append(post)
+        else:
+            # handle new p ost
             # attributes that do not need to be updated
             post['id'] = submission.id
             post['title'] = submission.title
@@ -301,15 +318,11 @@ def get_posts(submissions, score_degradation=None):
                     post['image_url'] = submission.url
                 # print("media", time.time() - start_time)
 
-        if 'display_count' not in post:
-            post['display_count'] = 1
-
-        print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
-                                                                                round(time.time() - start_time, 4),
-                                                                                'visited' in post,
-                                                                                post['display_count']))
-        posts.append(post)
-
+            print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
+                                                                                    round(time.time() - start_time, 4),
+                                                                                    'visited' in post,
+                                                                                    post['display_count']))
+            posts.append(post)
         post_cache[submission.id] = post
 
         if score_degradation is not None:
@@ -322,9 +335,6 @@ def get_posts(submissions, score_degradation=None):
                         "Ending at this post because percentage change between top score ({}) and post score ({}) is {}".format(
                             top_score, int(post['score']), percent_change))
                     break
-
-    for post in posts:
-        post['display_count'] += 1
 
     save_cache(post_cache)
 
@@ -402,6 +412,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
             if post['hours_since_creation'] > max_hours:
                 continue
 
+        # do not displayed visited posts which have not changed
         if 'visited' in post:
             delta_comments = submission.num_comments - post['visit_comment_count']
             # ignore post if comment count increase is less than or equal to 10%
@@ -513,7 +524,7 @@ def show_favorite_subreddits():
                         with open(CACHE_FILE_NAME, 'r') as f:
                             post_cache = json.load(f)
                 except FileNotFoundError:
-                    return
+                    return jsonify(), 404
 
                 clicked_id = data['clickedId']
                 print('Clicked {}'.format(clicked_id))
@@ -553,30 +564,46 @@ def show_favorite_subreddits():
         except exceptions.Forbidden:
             pass
 
-        submissions = subreddit.top(sort_type, limit=(cur_post_num + post_amount))
+        if not SLOW_MODE:
+            submissions = subreddit.top(sort_type, limit=(cur_post_num + post_amount))
+            for _ in range(cur_post_num):
+                try:
+                    next(submissions)
+                except StopIteration:
+                    break
 
-        for _ in range(cur_post_num):
-            try:
-                next(submissions)
-            except StopIteration:
-                break
-
-        posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
-
-        if SLOW_MODE:
-            print('slow mode')
+        else:
+            # posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
+            # print('slow mode')
             # slow mode only shows posts older than 24 hours
             # posts which have been visited should no longer be shown because they have settled down by now
             # load cache, filter posts earlier than 24 hours
-            start_time = time.time()
-            cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48 + 8)
-            end_time = time.time()
-            if len(cached_posts) > 0:
-                print('using cached posts', len(cached_posts))
-                posts = cached_posts
-            else:
-                print('no cached posts for r/{} meet requirements'.format(subreddit.display_name))
-            print('getting cached posts took {} seconds'.format(end_time - start_time))
+            # start_time = time.time()
+            # cached_posts = get_cached_posts(subreddit.display_name, min_hours=24, max_hours=48 + 8)
+            # end_time = time.time()
+            # if len(cached_posts) > 0:
+            #     print('using cached posts', len(cached_posts))
+            #     posts = cached_posts
+            # else:
+            #     print('no cached posts for r/{} meet requirements'.format(subreddit.display_name))
+            # print('getting cached posts took {} seconds'.format(end_time - start_time))
+
+            # for some reason sort_type will cause duplicates to be returned
+            # the submissions seemingly start duplicating / looping back
+            # using a small limit such as 10 will avoid duplication
+            # unknown whether using limit itself avoids duplication
+            submissions = list(
+                api.search_submissions(subreddit=subreddit.display_name, after='56h', before='24h', sort='desc',
+                                       sort_type='score', limit=10))
+            id_set = set()
+            for submission in submissions:
+                if submission.id in id_set:
+                    print('{}: "{}" is duplicated'.format(submission.id, submission.title))
+                else:
+                    id_set.add(submission.id)
+            print(id_set)
+            print(submissions)
+        posts = get_posts(submissions)
 
         print('sub {0}, post {1}, {2} posts, offset {3}, {4}'.format(cur_sub_num, cur_post_num, post_amount,
                                                                      cur_post_num + post_amount, posts))
