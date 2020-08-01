@@ -32,9 +32,6 @@ app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76
 # create a read-only Reddit instance
 reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
 
-# PSAW API
-api = PushshiftAPI(reddit)
-
 
 def is_valid_thumbnail(thumbnail):
     return (len(thumbnail) > 0) and (thumbnail != 'default') and (thumbnail != 'nsfw')
@@ -557,7 +554,8 @@ def show_favorite_subreddits():
         if cur_sub_num >= len(subreddit_names):
             return {}
 
-        subreddit = reddit.subreddit(subreddit_names[cur_sub_num])
+        subreddit_name = subreddit_names[cur_sub_num]
+        subreddit = reddit.subreddit(subreddit_name)
         # deal with quarantined subreddits
         try:
             subreddit.quaran.opt_in()
@@ -592,20 +590,32 @@ def show_favorite_subreddits():
             # the submissions seemingly start duplicating / looping back
             # using a small limit such as 10 will avoid duplication
             # unknown whether using limit itself avoids duplication
-            submissions = list(
-                api.search_submissions(subreddit=subreddit.display_name, after='56h', before='24h', sort='desc',
-                                       sort_type='score', limit=10))
+            # sort_type = score is inaccurate, it is more accurate to fetch all submissions and sort them
+
+            # PSAW API
+            # this was previous initialized at the start in global scope
+            # causing Pushshift API requests to get mixed up and return results from multiple API requests at once
+            # initializing a new api object for each request seems to solve this problem
+            api = PushshiftAPI(reddit)
+
+            submissions = list(api.search_submissions(subreddit=subreddit_name, after='56h', before='24h'))
             id_set = set()
             for submission in submissions:
                 if submission.id in id_set:
                     print('{}: "{}" is duplicated'.format(submission.id, submission.title))
                 else:
                     id_set.add(submission.id)
+                if submission.subreddit.display_name.lower() != subreddit_name.lower():
+                    print('submission {} of {} != subreddit {}'.format(submission.id, submission.subreddit.display_name,
+                                                                       subreddit_name))
+            submissions.sort(key=lambda item: item.score, reverse=True)
+            submissions = submissions[:10]
             print(id_set)
-            print(submissions)
+            print(subreddit.display_name, submissions)
         posts = get_posts(submissions)
 
-        print('sub {0}, post {1}, {2} posts, offset {3}, {4}'.format(cur_sub_num, cur_post_num, post_amount,
+        print('sub #{}: {}, post {}, {} posts, offset {}, {}'.format(cur_sub_num, subreddit.display_name, cur_post_num,
+                                                                     post_amount,
                                                                      cur_post_num + post_amount, posts))
         return jsonify(posts)
 
