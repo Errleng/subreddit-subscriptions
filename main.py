@@ -619,7 +619,8 @@ def show_favorite_subreddits():
                                                                      cur_post_num + post_amount, posts))
         return jsonify(posts)
 
-    return render_template('favorite_subreddits.html')
+    return render_template('favorite_subreddits.html', SUBREDDIT_MAX_POSTS=SUBREDDIT_MAX_POSTS, POST_STEP=POST_STEP, DISPLAY_COUNT_THRESHOLD=DISPLAY_COUNT_THRESHOLD)
+
 
 
 if __name__ == '__main__':
