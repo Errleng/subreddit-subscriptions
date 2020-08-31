@@ -53,9 +53,21 @@
 
 <script>
     // declare constants
-    const SUBREDDIT_MAX_POSTS = {{ SUBREDDIT_MAX_POSTS }};
-    const POST_STEP = {{ POST_STEP }};
-    const DISPLAY_COUNT_THRESHOLD = {{ DISPLAY_COUNT_THRESHOLD }};
+    const SUBREDDIT_MAX_POSTS = {
+    {
+        SUBREDDIT_MAX_POSTS
+    }
+    }
+    const POST_STEP = {
+    {
+        POST_STEP
+    }
+    }
+    const DISPLAY_COUNT_THRESHOLD = {
+    {
+        DISPLAY_COUNT_THRESHOLD
+    }
+    }
 
     // declare global variables
     const content = document.getElementById("content");
@@ -116,6 +128,11 @@
             if (currentElement.id.startsWith("subreddit_")) {
                 // move into child post
                 nextElement = currentElement.querySelector(postSelector);
+
+                if (nextElement === null) {
+                    // this subreddit has no posts
+                    nextElement = currentElement.parentElement.nextElementSibling;
+                }
             } else if (currentElement.id.startsWith("post_")) {
                 // move to next post
                 nextElement = currentElement.nextElementSibling;
@@ -144,7 +161,13 @@
             if (currentElement.id.startsWith("subreddit_")) {
                 // move into last post of previous subreddit
                 const posts = currentElement.previousElementSibling.querySelectorAll(postSelector);
-                nextElement = posts[posts.length - 1];
+
+                if (posts !== null) {
+                    nextElement = posts[posts.length - 1];
+                } else {
+                    // this subreddit has no posts
+                    nextElement = currentElement.parentElement.previousElementSibling;
+                }
             } else if (currentElement.id.startsWith("post_")) {
                 // move to previous post
                 nextElement = currentElement.previousElementSibling;
@@ -296,7 +319,7 @@
                     let innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`;
 
                     // mark posts if they are to be removed in a future feature
-                    if (data['display_count'] > DISPLAY_COUNT_THRESHOLD) {
+                    if (data['display_count'] >= DISPLAY_COUNT_THRESHOLD) {
                         postAnchor.style.color = "red";
                     }
 

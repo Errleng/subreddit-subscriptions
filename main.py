@@ -202,6 +202,17 @@ def get_image(submission):
             #     else:
             #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
             #         image_preview = source_image['url']
+    elif submission.is_gallery:
+        # Reddit now has image galleries
+        gallery_images = submission.gallery_data['items']
+        for gallery_image in gallery_images:
+            media_id = gallery_image['media_id']
+            # use media_metadata attribute
+            metadata = submission.media_metadata[media_id]
+            # e = media type, m = extension, s = preview image, p = preview images, id = id
+            # just use the first image's preview for now
+            submission_image = metadata['s']
+
     return submission_image
 
 
@@ -308,11 +319,11 @@ def get_posts(submissions, score_degradation=None):
                 media_preview = get_media(submission)
                 if media_preview is not None:
                     post['media_preview'] = media_preview
-                elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
+                else:
                     image_preview = get_image(submission)
                     if image_preview is not None:
                         post['image_preview'] = image_preview
-                    post['image_url'] = submission.url
+                        post['image_url'] = submission.url
                 # print("media", time.time() - start_time)
 
             print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
@@ -619,8 +630,8 @@ def show_favorite_subreddits():
                                                                      cur_post_num + post_amount, posts))
         return jsonify(posts)
 
-    return render_template('favorite_subreddits.html', SUBREDDIT_MAX_POSTS=SUBREDDIT_MAX_POSTS, POST_STEP=POST_STEP, DISPLAY_COUNT_THRESHOLD=DISPLAY_COUNT_THRESHOLD)
-
+    return render_template('favorite_subreddits.html', SUBREDDIT_MAX_POSTS=SUBREDDIT_MAX_POSTS, POST_STEP=POST_STEP,
+                           DISPLAY_COUNT_THRESHOLD=DISPLAY_COUNT_THRESHOLD)
 
 
 if __name__ == '__main__':
