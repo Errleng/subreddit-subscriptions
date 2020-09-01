@@ -33,7 +33,7 @@
     <template id="postTemplate">
         <div>
             <div id="postDiv">
-                <a href="" id="postAnchor" rel="noopener noreferrer" target="_blank"></a>
+                <a href="" id="postAnchor" postId="" rel="noopener noreferrer" target="_blank"></a>
                 <hr>
             </div>
             <div id="imageDiv">
@@ -113,10 +113,44 @@
         }
     }
 
+    function viewPost(post) {
+        fetch("favorites", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({"viewedId": post.postId})
+        });
+    }
+
+    function getNextMatching(element, selector) {
+        let sibling = element.nextElementSibling;
+        while (sibling !== null) {
+            if (sibling.matches(selector)) {
+                return sibling;
+            }
+            sibling = sibling.nextElementSibling;
+        }
+        return null;
+    }
+
+    function getPreviousMatching(element, selector) {
+        let sibling = element.previousElementSibling;
+        while (sibling !== null) {
+            if (sibling.matches(selector)) {
+                return sibling;
+            }
+            sibling = sibling.previousElementSibling;
+        }
+        return null;
+    }
+
     // keyboard shortcuts
     let currentElement = document.querySelector("[id^='post_']");
+
     document.addEventListener("keydown", (event) => {
         const postSelector = "div[id^='post_']";
+        const subredditSelector = "div[id^='subreddit_']";
         const keyName = event.key;
         if (keyName === "s") {
             // scroll down
@@ -124,32 +158,38 @@
                 currentElement = document.querySelector(postSelector);
             }
             console.log("current", currentElement)
+
             let nextElement = null;
-            if (currentElement.id.startsWith("subreddit_")) {
+            if (currentElement.matches(subredditSelector)) {
                 // move into child post
                 nextElement = currentElement.querySelector(postSelector);
 
                 if (nextElement === null) {
                     // this subreddit has no posts
-                    nextElement = currentElement.parentElement.nextElementSibling;
+                    nextElement = getNextMatching(currentElement, subredditSelector);
                 }
-            } else if (currentElement.id.startsWith("post_")) {
+            } else if (currentElement.matches(postSelector)) {
                 // move to next post
-                nextElement = currentElement.nextElementSibling;
-                if (nextElement.id === "subredditDone") {
+                nextElement = getNextMatching(currentElement, postSelector);
+                if (nextElement === null) {
                     // move to next subreddit
-                    nextElement = nextElement.parentElement.nextElementSibling;
+                    nextElement = getNextMatching(currentElement.parentElement, subredditSelector);
                 }
             } else {
                 console.log(`current element is not a subreddit nor a post! current element: ${currentElement}, next element: ${nextElement}`);
             }
-            if (nextElement !== null && nextElement !== undefined) {
-                if ((nextElement.id.startsWith("subreddit_") || nextElement.id.startsWith("post_"))) {
+
+            if (nextElement !== null) {
+                if ((nextElement.matches(subredditSelector) || nextElement.matches(postSelector))) {
                     currentElement = nextElement;
                     currentElement.scrollIntoView(true);
                 } else {
                     console.log(`next element is neither a subreddit nor a post`, nextElement);
                 }
+            }
+
+            if (currentElement.matches(postSelector)) {
+                viewPost(currentElement);
             }
         } else if (keyName === "f") {
             // scroll up
@@ -158,33 +198,39 @@
             }
             console.log("current", currentElement)
             let nextElement = null;
-            if (currentElement.id.startsWith("subreddit_")) {
+            if (currentElement.matches(subredditSelector)) {
                 // move into last post of previous subreddit
-                const posts = currentElement.previousElementSibling.querySelectorAll(postSelector);
+                const lastSubreddit = getPreviousMatching(currentElement, subredditSelector);
+                const posts = lastSubreddit.querySelectorAll(postSelector);
 
-                if (posts !== null) {
+                if (posts !== null && posts.length > 0) {
                     nextElement = posts[posts.length - 1];
                 } else {
                     // this subreddit has no posts
-                    nextElement = currentElement.parentElement.previousElementSibling;
+                    nextElement = lastSubreddit;
                 }
-            } else if (currentElement.id.startsWith("post_")) {
+            } else if (currentElement.matches(postSelector)) {
                 // move to previous post
-                nextElement = currentElement.previousElementSibling;
-                if (nextElement.id === "subredditStart") {
+                nextElement = getPreviousMatching(currentElement, postSelector);
+                if (nextElement === null) {
                     // move to start of the subreddit
-                    nextElement = nextElement.parentElement;
+                    nextElement = currentElement.parentElement;
                 }
             } else {
                 console.log(`current element is not a subreddit nor a post! current element: ${currentElement}, next element: ${nextElement}`);
             }
-            if (nextElement !== null && nextElement !== undefined) {
-                if ((nextElement.id.startsWith("subreddit_") || nextElement.id.startsWith("post_"))) {
+
+            if (nextElement !== null) {
+                if ((nextElement.matches(subredditSelector) || nextElement.matches(postSelector))) {
                     currentElement = nextElement;
                     currentElement.scrollIntoView(true);
                 } else {
                     console.log(`next element is neither a subreddit nor a post`, nextElement);
                 }
+            }
+
+            if (currentElement.matches(postSelector)) {
+                viewPost(currentElement);
             }
         }
     });
@@ -308,6 +354,7 @@
                     const postId = "post_" + postCount;
                     const postDiv = document.createElement("div");
                     postDiv.id = postId;
+                    postDiv.postId = data["id"];
                     subredditDiv.appendChild(postDiv);
 
                     // clone post template
@@ -316,12 +363,36 @@
                     // add basic post information
                     const postAnchor = postTemplateClone.querySelector("#postAnchor");
                     postAnchor.href = data["shortlink"];
-                    let innerHTML = `${data["title"]}<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`;
 
                     // mark posts if they are to be removed in a future feature
                     if (data['display_count'] >= DISPLAY_COUNT_THRESHOLD) {
                         postAnchor.style.color = "red";
                     }
+
+                    let innerHTML = `${data["title"]}`;
+
+                    if (data.hasOwnProperty("removed_by_category") && data['removed_by_category'] !== null) {
+                        let removalMessage = "";
+                        switch (data["removed_by_category"]) {
+                            case "deleted":
+                                removalMessage = "deleted by author";
+                                break;
+                            case "author":
+                                removalMessage = "removed by author";
+                                break;
+                            case "moderator":
+                                removalMessage = "removed by moderator";
+                                break;
+                            case "null":
+                                removalMessage = "author account deleted";
+                                break;
+                            default:
+                                break;
+                        }
+                        innerHTML += `<span style="color:blue;"> (${removalMessage})</span>`;
+                    }
+
+                    innerHTML += `<p>(${data["score"]}, ${data["upvote_ratio"]}%) (${data["time_since_creation"]})`
 
                     if (data.hasOwnProperty("time_since_visit")) {
                         innerHTML += ` (${data["time_since_visit"]})`;
@@ -356,18 +427,27 @@
                     };
 
                     // check and add post preview image
-                    if (data.hasOwnProperty("image_preview")) {
-                        const imageAnchor = postTemplateClone.querySelector("#imageAnchor");
-                        imageAnchor.href = data["shortlink"];
-                        imageAnchor.onclick = clickHandler;
-                        imageAnchor.onauxclick = (event) => {
-                            if (event.button === 1) {
-                                // middle mouse click
-                                clickHandler();
-                            }
-                        };
-                        const imageEmbed = postTemplateClone.querySelector("#imageEmbed");
-                        imageEmbed.src = data["image_preview"];
+                    if (data.hasOwnProperty("image_previews")) {
+                        const imageDiv = postTemplateClone.querySelector("#imageDiv");
+                        const imageAnchor = postTemplateClone.querySelector("#imageAnchor")
+
+                        for (const preview of data["image_previews"]) {
+                            const imageAnchorClone = imageAnchor.cloneNode(true);
+                            imageAnchorClone.href = data["shortlink"];
+                            imageAnchorClone.onclick = clickHandler;
+                            imageAnchorClone.onauxclick = (event) => {
+                                if (event.button === 1) {
+                                    // middle mouse click
+                                    clickHandler();
+                                }
+                            };
+                            const imageEmbed = imageAnchorClone.querySelector("#imageEmbed");
+                            imageEmbed.src = preview;
+                            imageDiv.append(imageAnchorClone);
+                        }
+
+                        // remove progenitor image anchor
+                        imageAnchor.parentNode.removeChild(imageAnchor);
                     } else {
                         const imageDiv = postTemplateClone.querySelector("#imageDiv");
                         imageDiv.parentNode.removeChild(imageDiv);

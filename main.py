@@ -5,7 +5,7 @@ import time
 
 import imgspy
 import praw
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 from prawcore import exceptions
 from psaw import PushshiftAPI
 
@@ -120,6 +120,9 @@ def update_cached_post(cached_post):
     cached_post['upvote_ratio'] = int(submission.upvote_ratio * 100)
     cached_post['comment_count'] = submission.num_comments
 
+    if 'removed_by_category' not in cached_post and hasattr(submission, 'removed_by_category'):
+        cached_post['removed_by_category'] = submission.removed_by_category
+
     # update time data
     cached_post = update_post_time_data(cached_post, submission)
 
@@ -147,6 +150,7 @@ def update_cached_post(cached_post):
 def get_image(submission):
     # image media
     submission_image = None
+    submission_images = []
 
     lazy_load_start_time = time.time()
 
@@ -202,7 +206,8 @@ def get_image(submission):
             #     else:
             #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
             #         image_preview = source_image['url']
-    elif submission.is_gallery:
+
+    if hasattr(submission, 'is_gallery') and submission.is_gallery:
         # Reddit now has image galleries
         gallery_images = submission.gallery_data['items']
         for gallery_image in gallery_images:
@@ -211,9 +216,10 @@ def get_image(submission):
             metadata = submission.media_metadata[media_id]
             # e = media type, m = extension, s = preview image, p = preview images, id = id
             # just use the first image's preview for now
-            submission_image = metadata['s']
-
-    return submission_image
+            submission_images.append(metadata['p'][1]['u'])
+    else:
+        submission_images.append(submission_image)
+    return submission_images
 
 
 def get_media(submission):
@@ -289,15 +295,20 @@ def get_posts(submissions, score_degradation=None):
 
             # do not displayed visited posts which have not changed
             if 'visited' in post:
-                delta_comments = submission.num_comments - post['visit_comment_count']
                 # ignore post if comment count increase is less than or equal to 10%
-                if delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD):
+                delta_comments = submission.num_comments - post['visit_comment_count']
+                enough_new_comments = delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD)
+
+                # want to highlight posts that have been removed
+                recently_removed = ('removed_by_category' not in post or post[
+                    'removed_by_category'] == 'null') and hasattr(submission,
+                                                                  'removed_by_category') and submission.removed_by_category != None
+
+                if enough_new_comments or recently_removed:
                     post = update_cached_post(post)
-                    post['display_count'] += 1
                     posts.append(post)
             else:
                 post = update_cached_post(post)
-                post['display_count'] += 1
                 posts.append(post)
         else:
             # handle new p ost
@@ -312,6 +323,9 @@ def get_posts(submissions, score_degradation=None):
             post['display_count'] = 1  # how many times the post was DISPLAYED
             # post['creation_time'] = submission.created_utc
 
+            if hasattr(submission, 'removed_by_category') and submission.removed_by_category != None:
+                post['removed_by_category'] = submission.removed_by_category
+
             post = update_post_time_data(post, submission)
 
             if not submission.is_self:
@@ -320,10 +334,9 @@ def get_posts(submissions, score_degradation=None):
                 if media_preview is not None:
                     post['media_preview'] = media_preview
                 else:
-                    image_preview = get_image(submission)
-                    if image_preview is not None:
-                        post['image_preview'] = image_preview
-                        post['image_url'] = submission.url
+                    image_previews = get_image(submission)
+                    if image_previews:
+                        post['image_previews'] = image_previews
                 # print("media", time.time() - start_time)
 
             print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
@@ -383,7 +396,8 @@ def get_image_posts(submissions):
             post['media_preview'] = media_preview
         else:
             post['image_url'] = image_url
-            post['image_preview'] = get_image(image_submission)
+            image_previews = get_image(image_submission)
+            post['image_previews'] = image_previews
 
         posts.append(post)
         print('Done post in {0} seconds'.format(round(time.time() - start_time, 2)))
@@ -411,7 +425,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
             continue
 
         # filter posts for time range
-        submission = reddit.submission(post['id'])
+        submission = reddit.submission(id=post['id'])
         post = update_post_time_data(post, submission)
         if min_hours is not None:
             if post['hours_since_creation'] < min_hours:
@@ -451,8 +465,6 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
     for post in posts:
         if 'display_count' not in post:
             post['display_count'] = 1
-        else:
-            post['display_count'] += 1
         print(
             '{0} - {1}, visited: {2}, display_count: {3}\n'.format(post['shortlink'], post['title'], 'visited' in post,
                                                                    post['display_count']))
@@ -536,10 +548,10 @@ def show_favorite_subreddits():
 
                 clicked_id = data['clickedId']
                 print('Clicked {}'.format(clicked_id))
-                post = post_cache[clicked_id]
-                post['visited'] = True  # marks the post as clicked on
-                post['visit_time'] = time.time()  # time on click
-                post['visit_comment_count'] = post['comment_count']  # number of comments on click
+                clicked_post = post_cache[clicked_id]
+                clicked_post['visited'] = True  # marks the clicked_post as clicked on
+                clicked_post['visit_time'] = time.time()  # time on click
+                clicked_post['visit_comment_count'] = clicked_post['comment_count']  # number of comments on click
 
                 # save cache
                 with lock:
@@ -551,10 +563,49 @@ def show_favorite_subreddits():
                     except FileNotFoundError:
                         pass
                     if post_cache is not None:
-                        post_cache[clicked_id].update(post)
+                        post_cache[clicked_id].update(clicked_post)
                     with open(CACHE_FILE_NAME, 'w') as f:
                         json.dump(post_cache, f)
                 return jsonify(), 200
+            elif 'viewedId' in data:
+                if 'viewed_post_ids' in session:
+                    viewed_post_ids = session['viewed_post_ids']
+                else:
+                    viewed_post_ids = {}
+
+                viewed_id = data['viewedId']
+                if viewed_id not in session['viewed_post_ids']:
+                    viewed_post_ids[viewed_id] = None
+
+                    try:
+                        with lock:
+                            with open(CACHE_FILE_NAME, 'r') as f:
+                                post_cache = json.load(f)
+                    except FileNotFoundError:
+                        return jsonify(), 404
+
+                    print('Viewed {}'.format(viewed_id))
+                    viewed_post = post_cache[viewed_id]
+
+                    if not DEBUG_MODE:
+                        viewed_post['display_count'] += 1
+
+                    # save cache
+                    with lock:
+                        post_cache = None
+                        try:
+                            with open(CACHE_FILE_NAME, 'r') as f:
+                                post_cache = json.load(f)
+                                post_cache = remove_outdated(post_cache)
+                        except FileNotFoundError:
+                            pass
+                        if post_cache is not None:
+                            post_cache[viewed_id].update(viewed_post)
+                        with open(CACHE_FILE_NAME, 'w') as f:
+                            json.dump(post_cache, f)
+                session['viewed_post_ids'] = viewed_post_ids
+                return jsonify(), 200
+
             return jsonify(), 404
         # return post data
         cur_sub_num = data['subredditIndex']
@@ -580,7 +631,6 @@ def show_favorite_subreddits():
                     next(submissions)
                 except StopIteration:
                     break
-
         else:
             # posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
             # print('slow mode')
@@ -624,10 +674,8 @@ def show_favorite_subreddits():
             print(id_set)
             print(subreddit.display_name, submissions)
         posts = get_posts(submissions)
-
-        print('sub #{}: {}, post {}, {} posts, offset {}, {}'.format(cur_sub_num, subreddit.display_name, cur_post_num,
-                                                                     post_amount,
-                                                                     cur_post_num + post_amount, posts))
+        print(
+            f'sub #{cur_sub_num}: {subreddit.display_name}, post {cur_post_num}, {post_amount} posts, offset {cur_post_num + post_amount}, {posts}')
         return jsonify(posts)
 
     return render_template('favorite_subreddits.html', SUBREDDIT_MAX_POSTS=SUBREDDIT_MAX_POSTS, POST_STEP=POST_STEP,
