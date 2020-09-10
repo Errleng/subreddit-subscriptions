@@ -208,7 +208,7 @@ def get_image(submission):
 
     if hasattr(submission, 'is_gallery') and submission.is_gallery:
         # Reddit now has image galleries
-        if 'gallery_data' in submission:
+        if hasattr(submission, 'gallery_data') and submission.gallery_data is not None:  # check if gallery is deleted
             gallery_images = submission.gallery_data['items']
             for gallery_image in gallery_images:
                 media_id = gallery_image['media_id']
@@ -281,8 +281,9 @@ def is_post_visible(current_post, cached_post):
 
         if not (enough_new_comments or recently_removed):
             return False
-    elif cached_post['display_count'] > config['display'].getint('display_count_threshold'):
+    elif cached_post['display_count'] >= config['display'].getint('display_count_threshold'):
         # hide posts seen too many times
+        print(f'Post {cached_post["id"]} is over the display count threshold ({cached_post["display_count"]} vs {config["display"].getint("display_count_threshold")})')
         return False
     return True
 
