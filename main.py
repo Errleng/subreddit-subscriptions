@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+import html
 
 import imgspy
 import praw
@@ -292,7 +293,7 @@ def get_posts(submissions, score_degradation=None):
             # handle new p ost
             # attributes that do not need to be updated
             post['id'] = submission.id
-            post['title'] = submission.title
+            post['title'] = html.escape(submission.title)  # this needs to be sanitized
             post['subreddit'] = submission.subreddit.display_name
             post['shortlink'] = submission.shortlink
             post['score'] = submission.score
@@ -362,7 +363,7 @@ def get_image_posts(submissions):
 
         post = {}
         post['id'] = image_submission.id
-        post['title'] = image_submission.title
+        post['title'] = html.escape(image_submission.title)  # this needs to be sanitized
         post['subreddit'] = image_submission.subreddit.display_name
         post['score'] = image_submission.score
         post['shortlink'] = image_submission.shortlink
