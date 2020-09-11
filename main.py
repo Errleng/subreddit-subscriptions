@@ -1,37 +1,34 @@
 import json
-import os
 import threading
 import time
 import html
+from configparser import ConfigParser
 
 import imgspy
 import praw
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 from prawcore import exceptions
 from psaw import PushshiftAPI
 
-from constants import *
+# set up constants
+secret_config = ConfigParser()
+secret_config.read('secrets.ini')
+secrets = secret_config['secrets']
+config = ConfigParser()
+config.read('config.ini')
+subreddit_names = list(filter(None, [x.strip() for x in config['user']['subreddits'].splitlines()]))
 
 # set up globals
 # cache read and write lock
 lock = threading.Lock()
 
-# read subreddit names from a file
-subreddit_names = []
-script_dir = os.path.dirname(os.path.realpath(__file__))
-with open(script_dir + '/' + SUBREDDIT_NAMES_RELATIVE_PATH, 'r') as subreddit_names_file:
-    for line in subreddit_names_file:
-        for name in line.split():
-            # check if commented out
-            if not name.startswith('#'):
-                subreddit_names.append(name)
-
 # set up Flask app
 app = Flask(__name__)
-app.secret_key = b"\x9d\xbb\x95YR\n#\x1f\x91?\x8au\xfc\x8e'\xef1\xb0L\x99T^\xb76"
+app.secret_key = secrets['flask_secret_key']
 
 # create a read-only Reddit instance
-reddit = praw.Reddit(client_id=REDDIT_APP_ID, client_secret=REDDIT_APP_SECRET, user_agent=REDDIT_APP_USER_AGENT)
+reddit = praw.Reddit(client_id=secrets['reddit_app_id'], client_secret=secrets['reddit_app_secret'],
+                     user_agent=secrets['reddit_app_user_agent'])
 
 
 def is_valid_thumbnail(thumbnail):
@@ -39,12 +36,13 @@ def is_valid_thumbnail(thumbnail):
 
 
 def save_cache(post_cache, subreddit_name=None):
+    cache_file = config['paths']['cache_path']
     with lock:
         if subreddit_name is not None:
             print("{} acquired lock".format(subreddit_name))
         old_post_cache = None
         try:
-            with open(CACHE_FILE_NAME, 'r') as f:
+            with open(cache_file, 'r') as f:
                 old_post_cache = json.load(f)
         except FileNotFoundError:
             pass
@@ -69,12 +67,12 @@ def save_cache(post_cache, subreddit_name=None):
                     print('new post {}'.format(post['title']))
             post_cache = old_post_cache
         try:
-            with open(CACHE_FILE_NAME, 'w') as f:
+            with open(cache_file, 'w') as f:
                 json.dump(post_cache, f)
         except FileNotFoundError:
             pass
         try:
-            with open(CACHE_FILE_NAME, 'r') as f:
+            with open(cache_file, 'r') as f:
                 new_post_cache = json.load(f)
                 print("OLD = NEW? {}".format(new_post_cache == old_post_cache))
         except FileNotFoundError:
@@ -87,7 +85,7 @@ def save_cache(post_cache, subreddit_name=None):
 def remove_outdated(cache):
     filtered_cache = {}
     for post_id, post in cache.items():
-        if post['hours_since_creation'] <= OUTDATED_THRESHOLD:
+        if post['hours_since_creation'] <= config['display'].getfloat('outdated_threshold'):
             filtered_cache[post_id] = post
         else:
             print('removed outdated post {0} "{1}"'.format(post_id, post['title']))
@@ -121,6 +119,9 @@ def update_cached_post(cached_post):
     cached_post['upvote_ratio'] = int(submission.upvote_ratio * 100)
     cached_post['comment_count'] = submission.num_comments
 
+    if 'removed_by_category' not in cached_post and hasattr(submission, 'removed_by_category'):
+        cached_post['removed_by_category'] = submission.removed_by_category
+
     # update time data
     cached_post = update_post_time_data(cached_post, submission)
 
@@ -148,6 +149,7 @@ def update_cached_post(cached_post):
 def get_image(submission):
     # image media
     submission_image = None
+    submission_images = []
 
     lazy_load_start_time = time.time()
 
@@ -180,7 +182,8 @@ def get_image(submission):
                                 submission.id, submission.title, preview_image, e))
                 width, height = response['width'], response['height']
                 dimensions_ratio = width / height
-                if dimensions_ratio <= MAX_WIDTH_TO_HEIGHT_RATIO and width <= MAX_WIDTH and height <= MAX_HEIGHT:
+                if dimensions_ratio <= config['media'].getfloat('max_width_to_height_ratio') and width <= config[
+                    'media'].getfloat('max_width') and height <= config['media'].getfloat('max_height'):
                     # print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
                     submission_image = preview_image['url']
                     break
@@ -203,7 +206,23 @@ def get_image(submission):
             #     else:
             #         print('preview image (width, height): ({0}, {1}), url: {2}'.format(source_image['width'], source_image['height'], source_image['url']))
             #         image_preview = source_image['url']
-    return submission_image
+
+    if hasattr(submission, 'is_gallery') and submission.is_gallery:
+        # Reddit now has image galleries
+        if hasattr(submission, 'gallery_data') and submission.gallery_data is not None:  # check if gallery is deleted
+            gallery_images = submission.gallery_data['items']
+            for gallery_image in gallery_images:
+                media_id = gallery_image['media_id']
+                # use media_metadata attribute
+                metadata = submission.media_metadata[media_id]
+                # e = media type, m = extension, s = preview image, p = preview images, id = id
+                # just use the first image's preview for now
+                submission_images.append(metadata['p'][1]['u'])
+        else:
+            print(f'Submission {submission.id} gallery is deleted')
+    else:
+        submission_images.append(submission_image)
+    return submission_images
 
 
 def get_media(submission):
@@ -248,6 +267,28 @@ def get_media(submission):
     return media_preview
 
 
+def is_post_visible(current_post, cached_post):
+    # do not displayed visited posts which have not changed
+    if 'visited' in cached_post:
+        # ignore post if comment count increase is less than or equal to 10%
+        delta_comments = current_post.num_comments - cached_post['visit_comment_count']
+        enough_new_comments = delta_comments > int(
+            cached_post['visit_comment_count'] * config['display'].getfloat('comment_count_update_threshold'))
+
+        # want to show posts that have been removed
+        recently_removed = ('removed_by_category' not in cached_post or cached_post[
+            'removed_by_category'] == 'null') and hasattr(current_post,
+                                                          'removed_by_category') and current_post.removed_by_category != None
+
+        if not (enough_new_comments or recently_removed):
+            return False
+    elif cached_post['display_count'] >= config['display'].getint('display_count_threshold'):
+        # hide posts seen too many times
+        print(f'Post {cached_post["id"]} is over the display count threshold ({cached_post["display_count"]} vs {config["display"].getint("display_count_threshold")})')
+        return False
+    return True
+
+
 def get_posts(submissions, score_degradation=None):
     post_cache = {}
 
@@ -259,7 +300,7 @@ def get_posts(submissions, score_degradation=None):
     # serialization method
     try:
         with lock:
-            with open(CACHE_FILE_NAME, 'r') as f:
+            with open(config['paths']['cache_path'], 'r') as f:
                 post_cache = json.load(f)
                 post_cache = remove_outdated(post_cache)
     except FileNotFoundError:
@@ -276,24 +317,14 @@ def get_posts(submissions, score_degradation=None):
         if submission.id in post_cache:
             # handle cached post
             post = post_cache[submission.id]
-
-            # do not displayed visited posts which have not changed
-            if 'visited' in post:
-                delta_comments = submission.num_comments - post['visit_comment_count']
-                # ignore post if comment count increase is less than or equal to 10%
-                if delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD):
-                    post = update_cached_post(post)
-                    post['display_count'] += 1
-                    posts.append(post)
-            else:
+            if is_post_visible(submission, post):
                 post = update_cached_post(post)
-                post['display_count'] += 1
                 posts.append(post)
         else:
             # handle new p ost
             # attributes that do not need to be updated
             post['id'] = submission.id
-            post['title'] = html.escape(submission.title)  # this needs to be sanitized
+            post['title'] = html.escape(submission.title)
             post['subreddit'] = submission.subreddit.display_name
             post['shortlink'] = submission.shortlink
             post['score'] = submission.score
@@ -302,6 +333,9 @@ def get_posts(submissions, score_degradation=None):
             post['display_count'] = 1  # how many times the post was DISPLAYED
             # post['creation_time'] = submission.created_utc
 
+            if hasattr(submission, 'removed_by_category') and submission.removed_by_category != None:
+                post['removed_by_category'] = submission.removed_by_category
+
             post = update_post_time_data(post, submission)
 
             if not submission.is_self:
@@ -309,11 +343,11 @@ def get_posts(submissions, score_degradation=None):
                 media_preview = get_media(submission)
                 if media_preview is not None:
                     post['media_preview'] = media_preview
-                elif hasattr(submission, 'thumbnail') or hasattr(submission, 'preview'):
-                    image_preview = get_image(submission)
-                    if image_preview is not None:
-                        post['image_preview'] = image_preview
-                    post['image_url'] = submission.url
+                else:
+                    image_previews = get_image(submission)
+                    if image_previews and None not in image_previews:
+                        print(f'{submission.id}: {image_previews}')
+                        post['image_previews'] = image_previews
                 # print("media", time.time() - start_time)
 
             print('{0} - {1}, time: {2}, visited: {3}, display_count: {4}\n'.format(post['shortlink'], post['title'],
@@ -343,7 +377,7 @@ def get_image_posts(submissions):
     image_submissions = []
 
     for submission in submissions:
-        if len(image_submissions) >= SUBMISSION_NUMBER:
+        if len(image_submissions) >= config['display'].getint('submission_number'):
             break
         if submission.is_self:
             continue
@@ -363,7 +397,7 @@ def get_image_posts(submissions):
 
         post = {}
         post['id'] = image_submission.id
-        post['title'] = html.escape(image_submission.title)  # this needs to be sanitized
+        post['title'] = html.escape(image_submission.title)
         post['subreddit'] = image_submission.subreddit.display_name
         post['score'] = image_submission.score
         post['shortlink'] = image_submission.shortlink
@@ -373,7 +407,8 @@ def get_image_posts(submissions):
             post['media_preview'] = media_preview
         else:
             post['image_url'] = image_url
-            post['image_preview'] = get_image(image_submission)
+            image_previews = get_image(image_submission)
+            post['image_previews'] = image_previews
 
         posts.append(post)
         print('Done post in {0} seconds'.format(round(time.time() - start_time, 2)))
@@ -387,7 +422,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
 
     try:
         with lock:
-            with open(CACHE_FILE_NAME, 'r') as f:
+            with open(config['paths']['cache_path'], 'r') as f:
                 post_cache = json.load(f)
                 remove_outdated(post_cache)
     except FileNotFoundError:
@@ -401,7 +436,7 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
             continue
 
         # filter posts for time range
-        submission = reddit.submission(post['id'])
+        submission = reddit.submission(id=post['id'])
         post = update_post_time_data(post, submission)
         if min_hours is not None:
             if post['hours_since_creation'] < min_hours:
@@ -414,7 +449,8 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
         if 'visited' in post:
             delta_comments = submission.num_comments - post['visit_comment_count']
             # ignore post if comment count increase is less than or equal to 10%
-            if delta_comments > int(post['visit_comment_count'] * COMMENT_COUNT_UPDATE_THRESHOLD):
+            if delta_comments > int(
+                    post['visit_comment_count'] * config['display'].getfloat('comment_count_update_threshold')):
                 posts.append(update_cached_post(post))
         else:
             posts.append(update_cached_post(post))
@@ -441,8 +477,6 @@ def get_cached_posts(subreddit_name, min_hours=None, max_hours=None, score_degra
     for post in posts:
         if 'display_count' not in post:
             post['display_count'] = 1
-        else:
-            post['display_count'] += 1
         print(
             '{0} - {1}, visited: {2}, display_count: {3}\n'.format(post['shortlink'], post['title'], 'visited' in post,
                                                                    post['display_count']))
@@ -476,25 +510,29 @@ def view_subreddit(subreddit_name, page_number):
 
     print('Loading page {0}'.format(page_number))
 
+    submission_number = config['display']['submission_number']
+
     if request.method == 'POST':
         if 'submit_button' in request.form:
             return redirect(url_for('view_subreddit', subreddit_name=subreddit_name, page_number=page_number + 1))
         elif 'sorts' in request.form:
             if request.form['sorts'] != 'default':
                 submissions = subreddit.top(request.form['sorts'])
-                submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
+                submissions = list(submissions)[(page_number * submission_number):(page_number + 1) * submission_number]
                 posts = get_posts(submissions)
                 return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts,
                                        sort_type=request.form['sorts'])
     else:
         submissions = subreddit.top('day')
-        submissions = list(submissions)[(page_number * SUBMISSION_NUMBER):(page_number + 1) * SUBMISSION_NUMBER]
+        submissions = list(submissions)[(page_number * submission_number):(page_number + 1) * submission_number]
         posts = get_posts(submissions)
         return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type='day')
 
 
 @app.route('/favorites', methods=['GET', 'POST'])
 def show_favorite_subreddits():
+    cache_file = config['paths']['cache_path']
+
     if request.method == 'POST':
         data = request.get_json()
         # return current subreddit name
@@ -516,35 +554,73 @@ def show_favorite_subreddits():
                          'subreddit_subscriber_text': 'subscribers'})
             elif 'clickedId' in data:
                 # clicked posts are marked as such and will show changes in information
-
                 try:
                     with lock:
-                        with open(CACHE_FILE_NAME, 'r') as f:
+                        with open(cache_file, 'r') as f:
                             post_cache = json.load(f)
                 except FileNotFoundError:
                     return jsonify(), 404
 
                 clicked_id = data['clickedId']
                 print('Clicked {}'.format(clicked_id))
-                post = post_cache[clicked_id]
-                post['visited'] = True  # marks the post as clicked on
-                post['visit_time'] = time.time()  # time on click
-                post['visit_comment_count'] = post['comment_count']  # number of comments on click
+                clicked_post = post_cache[clicked_id]
+                clicked_post['visited'] = True  # marks the clicked_post as clicked on
+                clicked_post['visit_time'] = time.time()  # time on click
+                clicked_post['visit_comment_count'] = clicked_post['comment_count']  # number of comments on click
 
                 # save cache
                 with lock:
                     post_cache = None
                     try:
-                        with open(CACHE_FILE_NAME, 'r') as f:
+                        with open(cache_file, 'r') as f:
                             post_cache = json.load(f)
                             post_cache = remove_outdated(post_cache)
                     except FileNotFoundError:
                         pass
                     if post_cache is not None:
-                        post_cache[clicked_id].update(post)
-                    with open(CACHE_FILE_NAME, 'w') as f:
+                        post_cache[clicked_id].update(clicked_post)
+                    with open(cache_file, 'w') as f:
                         json.dump(post_cache, f)
                 return jsonify(), 200
+            elif 'viewedId' in data:
+                if 'viewed_post_ids' in session:
+                    viewed_post_ids = session['viewed_post_ids']
+                else:
+                    viewed_post_ids = {}
+
+                viewed_id = data['viewedId']
+                if viewed_id not in viewed_post_ids:
+                    viewed_post_ids[viewed_id] = None
+
+                    try:
+                        with lock:
+                            with open(cache_file, 'r') as f:
+                                post_cache = json.load(f)
+                    except FileNotFoundError:
+                        return jsonify(), 404
+
+                    print('Viewed {}'.format(viewed_id))
+                    viewed_post = post_cache[viewed_id]
+
+                    if not config['modes'].getboolean('debug_mode'):
+                        viewed_post['display_count'] += 1
+
+                    # save cache
+                    with lock:
+                        post_cache = None
+                        try:
+                            with open(cache_file, 'r') as f:
+                                post_cache = json.load(f)
+                                post_cache = remove_outdated(post_cache)
+                        except FileNotFoundError:
+                            pass
+                        if post_cache is not None:
+                            post_cache[viewed_id].update(viewed_post)
+                        with open(cache_file, 'w') as f:
+                            json.dump(post_cache, f)
+                session['viewed_post_ids'] = viewed_post_ids
+                return jsonify(), 200
+
             return jsonify(), 404
         # return post data
         cur_sub_num = data['subredditIndex']
@@ -563,14 +639,13 @@ def show_favorite_subreddits():
         except exceptions.Forbidden:
             pass
 
-        if not SLOW_MODE:
+        if not config['modes'].getboolean('slow_mode'):
             submissions = subreddit.top(sort_type, limit=(cur_post_num + post_amount))
             for _ in range(cur_post_num):
                 try:
                     next(submissions)
                 except StopIteration:
                     break
-
         else:
             # posts = get_posts(submissions, SUBMISSION_SCORE_DEGRADATION)
             # print('slow mode')
@@ -614,13 +689,14 @@ def show_favorite_subreddits():
             print(id_set)
             print(subreddit.display_name, submissions)
         posts = get_posts(submissions)
-
-        print('sub #{}: {}, post {}, {} posts, offset {}, {}'.format(cur_sub_num, subreddit.display_name, cur_post_num,
-                                                                     post_amount,
-                                                                     cur_post_num + post_amount, posts))
+        print(
+            f'sub #{cur_sub_num}: {subreddit.display_name}, post {cur_post_num}, {post_amount} posts, offset {cur_post_num + post_amount}, {posts}')
         return jsonify(posts)
 
-    return render_template('favorite_subreddits.html')
+    return render_template('favorite_subreddits.html',
+                           SUBREDDIT_MAX_POSTS=config['display'].getint('subreddit_max_posts'),
+                           POST_STEP=config['display'].getint('post_step'),
+                           DISPLAY_COUNT_THRESHOLD=config['display'].getint('display_count_threshold'))
 
 
 if __name__ == '__main__':

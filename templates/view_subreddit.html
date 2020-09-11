@@ -21,17 +21,19 @@
     </form>
     <br>
     {% for post in posts %}
-    <a href="{{ post.shortlink }}" rel="noopener noreferrer" target="_blank">{{ post.title }}<br>({{ post.score }}, {{post.upvote_ratio }}%) ({{ post.elapsed_time
-        }})</a>
-    <hr>
-    {% if 'image_url' in post %}
-    <a href="{{ post.image_url }}" rel="noopener noreferrer" target="_blank"><img src="{{ post.image_preview }}"></a>
-    <br>
-    {% endif %}
-    {% if 'media_preview' in post %}
-    <div>{{ post.media_preview|safe }}</div>
-    <br>
-    {% endif %}
+        <a href="{{ post.shortlink }}" rel="noopener noreferrer"
+           target="_blank">{{ post.title }}<br>({{ post.score }}, {{ post.upvote_ratio }}%)
+            ({{ post.elapsed_time }})</a>
+        <hr>
+        {% if 'image_url' in post %}
+            <a href="{{ post.image_url }}" rel="noopener noreferrer" target="_blank" alt="Error loading image"><img
+                    src="{{ post.image_preview }}"></a>
+            <br>
+        {% endif %}
+        {% if 'media_preview' in post %}
+            <div>{{ post.media_preview|safe }}</div>
+            <br>
+        {% endif %}
     {% endfor %}
     <form method="post">
         <input name="submit_button" type="submit" value="Next Page">
