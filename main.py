@@ -217,7 +217,9 @@ def get_image(submission):
                 metadata = submission.media_metadata[media_id]
                 # e = media type, m = extension, s = preview image, p = preview images, id = id
                 # just use the first image's preview for now
-                submission_images.append(metadata['p'][1]['u'])
+                gallery_previews = metadata['p']
+                preview_index = min(1, len(gallery_previews)) # sometimes the images are too small
+                submission_images.append(gallery_previews[preview_index]['u'])
         else:
             print(f'Submission {submission.id} gallery is deleted')
     else:
