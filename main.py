@@ -1,7 +1,7 @@
+import html
 import json
 import threading
 import time
-import html
 from configparser import ConfigParser
 
 import imgspy
@@ -218,7 +218,8 @@ def get_image(submission):
                 # e = media type, m = extension, s = preview image, p = preview images, id = id
                 # just use the first image's preview for now
                 gallery_previews = metadata['p']
-                preview_index = min(1, len(gallery_previews)) # sometimes the images are too small
+                print(gallery_previews)
+                preview_index = min(1, len(gallery_previews) - 1)  # sometimes the images are too small
                 submission_images.append(gallery_previews[preview_index]['u'])
         else:
             print(f'Submission {submission.id} gallery is deleted')
