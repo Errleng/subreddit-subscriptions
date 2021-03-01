@@ -8,55 +8,56 @@
 </head>
 
 <body>
-<div class="content" id="content">
-    <button>Load all</button>
-    <template id="subredditTemplate">
-        <div id="subredditDiv">
-            <h1 id="subredditName"></h1>
-            <p id="subredditSubscribers"></p>
-            <br>
-            <div id="sortDiv">
-                <label for="sortSelect">Choose a sorting type</label>
-                <select id="sortSelect" name="sorts">
-                    <option value="day">Day</option>
-                    <option value="hour">Hour</option>
-                    <option value="week">Week</option>
-                    <option value="month">Month</option>
-                    <option value="year">Year</option>
-                    <option value="all">All</option>
-                </select>
-            </div>
-            <br>
-            <div id="subredditStart"></div>
-        </div>
-    </template>
-    <template id="postTemplate">
-        <div>
-            <div id="postDiv">
-                <a href="" id="postAnchor" postId="" rel="noopener noreferrer" target="_blank"></a>
-                <hr>
-            </div>
-            <div id="imageDiv">
+    <div class="content" id="content">
+        <button>Load all</button>
+        <template id="subredditTemplate">
+            <div id="subredditDiv">
+                <h1 id="subredditName"></h1>
+                <p id="subredditSubscribers"></p>
                 <br>
-                <a href="" id="imageAnchor" rel="noopener noreferrer" target="_blank">
-                    <img alt="Error loading image" id="imageEmbed" src=""/>
-                </a>
+                <div id="sortDiv">
+                    <label for="sortSelect">Choose a sorting type</label>
+                    <select id="sortSelect" name="sorts">
+                        <option value="day">Day</option>
+                        <option value="hour">Hour</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                        <option value="year">Year</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+                <br>
+                <div id="subredditStart"></div>
+            </div>
+        </template>
+        <template id="postTemplate">
+            <div>
+                <div id="postDiv">
+                    <a href="" id="postAnchor" postId="" rel="noopener noreferrer" target="_blank"></a>
+                    <hr>
+                </div>
+                <div id="imageDiv">
+                    <br>
+                    <a href="" id="imageAnchor" rel="noopener noreferrer" target="_blank">
+                        <img alt="Error loading image" id="imageEmbed" src="" />
+                    </a>
+                    <br>
+                </div>
+                <div id="mediaDiv">
+                </div>
                 <br>
             </div>
-            <div id="mediaDiv">
-            </div>
-            <br>
-        </div>
-    </template>
-</div>
-<div id="sentinel"></div>
+        </template>
+    </div>
+    <div id="sentinel"></div>
 </body>
 
 <script>
     // declare constants
-    const SUBREDDIT_MAX_POSTS = {{SUBREDDIT_MAX_POSTS}};
-    const POST_STEP = {{POST_STEP|tojson}};
-    const DISPLAY_COUNT_THRESHOLD = {{DISPLAY_COUNT_THRESHOLD|tojson}};
+    const ENDPOINT = "subredditdata";
+    const SUBREDDIT_MAX_POSTS = {{ SUBREDDIT_MAX_POSTS }};
+    const POST_STEP = {{ POST_STEP| tojson}};
+    const DISPLAY_COUNT_THRESHOLD = {{ DISPLAY_COUNT_THRESHOLD| tojson}};
 
     // declare global variables
     const content = document.getElementById("content");
@@ -103,12 +104,12 @@
     }
 
     function viewPost(post) {
-        fetch("favorites", {
+        fetch(ENDPOINT, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({"viewedId": post.postId})
+            body: JSON.stringify({ "viewedId": post.postId })
         });
     }
 
@@ -221,6 +222,14 @@
             if (currentElement.matches(postSelector)) {
                 viewPost(currentElement);
             }
+        } else if (keyName === "c") {
+            // click on post anchor
+            if (currentElement !== null) {
+                const postAnchor = currentElement.querySelector('#postAnchor');
+                if (postAnchor !== null) {
+                    postAnchor.dispatchEvent(new MouseEvent("click"));
+                }
+            }
         }
     });
 
@@ -249,7 +258,7 @@
     }
 
     function loadSubreddit(subredditIndex, postAmount, callback) {
-        const AJAX_URL = "favorites";
+        const AJAX_URL = ENDPOINT;
 
         console.log('load subreddit', subredditIndex);
 
@@ -323,7 +332,7 @@
 
     function loadPosts(subredditIndex, postIndex, postAmount, callback) {
         console.log('load posts', subredditIndex, postIndex, postAmount);
-        const AJAX_URL = "favorites";
+        const AJAX_URL = ENDPOINT;
 
         // find the subreddit to load posts in
         const subredditDiv = document.querySelector(`#subreddit_${subredditIndex}`);
@@ -398,12 +407,12 @@
                     postAnchor.innerHTML = innerHTML;
 
                     const clickHandler = () => {
-                        fetch("favorites", {
+                        fetch(ENDPOINT, {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json"
                             },
-                            body: JSON.stringify({"clickedId": data["id"]})
+                            body: JSON.stringify({ "clickedId": data["id"] })
                         });
                     };
 

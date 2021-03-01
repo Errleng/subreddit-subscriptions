@@ -52,8 +52,8 @@ def view_subreddit(subreddit_name, page_number):
         return render_template('view_subreddit.html', subreddit_name=subreddit_name, posts=posts, sort_type='day')
 
 
-@app.route('/subreddit/all', methods=['POST'])
-def all_subreddits():
+@app.route('/subredditdata', methods=['POST'])
+def subreddit_data_old():
     cache_file = config['paths']['cache_path']
     data = request.get_json()
     # return current subreddit name
