@@ -26,8 +26,9 @@
             ({{ post.elapsed_time }})</a>
         <hr>
         {% if 'image_url' in post %}
-            <a href="{{ post.image_url }}" rel="noopener noreferrer" target="_blank" alt="Error loading image"><img
-                    src="{{ post.image_preview }}"></a>
+            <a href="{{ post.image_url }}" rel="noopener noreferrer" target="_blank">
+                <img alt="Submission preview image" src="{{ post.image_preview }}"/>
+            </a>
             <br>
         {% endif %}
         {% if 'media_preview' in post %}

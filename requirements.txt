@@ -1,3 +1,6 @@
-flask
-praw
-imgspy
+flask~=1.1.2
+praw~=7.2.0
+imgspy~=0.2.2
+
+prawcore~=2.0.0
+psaw~=0.1.0
