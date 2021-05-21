@@ -150,20 +150,25 @@ def get_image(submission):
             # go from largest to smallest because most preview images are small
             for preview_image in reversed(preview_resolutions):
                 response = None
-                while response is None:
+                tries = 0
+                while response is None and tries < 10:
                     try:
                         response = imgspy.info(preview_image['url'])
                     except Exception as e:
                         print(
                             'Exception retrieving image information for submission {0} "{1}" with image preview {2}: {3}'.format(
                                 submission.id, submission.title, preview_image, e))
-                width, height = response['width'], response['height']
-                dimensions_ratio = width / height
-                if dimensions_ratio <= config['media'].getfloat('max_width_to_height_ratio') and width <= config[
-                    'media'].getfloat('max_width') and height <= config['media'].getfloat('max_height'):
-                    # print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
-                    submission_image = preview_image['url']
-                    break
+                        tries += 1
+                if response is not None:
+                    width, height = response['width'], response['height']
+                    dimensions_ratio = width / height
+                    if dimensions_ratio <= config['media'].getfloat('max_width_to_height_ratio') and width <= config[
+                        'media'].getfloat('max_width') and height <= config['media'].getfloat('max_height'):
+                        # print('preview images stopped at ({0}, {1}) with ratio {2}'.format(width, height, dimensions_ratio))
+                        submission_image = preview_image['url']
+                        break
+            if submission_image is None:
+                submission_image = submission.preview['images'][0]['source']['url']
         else:
             submission_image = submission.preview['images'][0]['source']['url']
             # dimensions_ratio = image['width'] / image['height']
@@ -195,7 +200,7 @@ def get_image(submission):
                 # e = media type, m = extension, s = preview image, p = preview images, id = id
                 # just use the first image's preview for now
                 gallery_previews = metadata['p']
-                print(gallery_previews)
+                # print(gallery_previews)
                 preview_index = min(1, len(gallery_previews) - 1)  # sometimes the images are too small
                 submission_images.append(gallery_previews[preview_index]['u'])
         else:
@@ -231,7 +236,7 @@ def get_media(submission):
                     # url to a thumbnail version of the media
                     media_preview = oembed['thumbnail_url']
                 # else:
-                #     print('oembed\n{0}'.format(oembed))
+                #     print('oembed\n{0}'.format(oembed)3
             elif 'reddit_video' in media:
                 # reddit's own video player
                 reddit_video = media['reddit_video']
